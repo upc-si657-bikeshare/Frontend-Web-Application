@@ -7,15 +7,17 @@ export class Bike {
   lat: number;
   lng: number;
   costPerMinute: number;
+  status: string;
 
-  constructor(data: Partial<Bike> = {}) {
+  constructor(data: any = {}) {
     this.id = data.id || 0;
     this.model = data.model || '';
     this.type = data.type || '';
-    this.rentalsThisMonth = data.rentalsThisMonth || 0;
+    this.rentalsThisMonth = 0;
     this.imageUrl = data.imageUrl || '';
-    this.lat = data.lat || 0;
-    this.lng = data.lng || 0;
     this.costPerMinute = data.costPerMinute || 0;
+    this.status = data.status || 'AVAILABLE';
+    this.lat = data.latitude !== undefined ? data.latitude : (data.lat || 0);
+    this.lng = data.longitude !== undefined ? data.longitude : (data.lng || 0);
   }
 }

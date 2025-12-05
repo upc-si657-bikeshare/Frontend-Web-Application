@@ -3,71 +3,135 @@ import { CommonModule, CurrencyPipe, DatePipe } from '@angular/common';
 import { MatTabsModule } from '@angular/material/tabs';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { Reservation } from '../../model/reservation.entity';
-import { ReservationService } from '../../service/reservation.service';
+import { bookingService } from '../../../../api/bookingService';
+import { catalogService } from '../../../../api/catalogService';
+import { identityService } from '../../../../api/identityService';
 
 @Component({
   selector: 'app-reservations-page',
   standalone: true,
-  imports: [CommonModule, MatTabsModule, MatIconModule, MatButtonModule, TranslateModule, CurrencyPipe, DatePipe],
+  imports: [CommonModule, MatTabsModule, MatIconModule, MatButtonModule, TranslateModule, CurrencyPipe, DatePipe, MatSnackBarModule],
   templateUrl: './reservations.page.html',
   styleUrls: ['./reservations.page.css']
 })
 export class ReservationsPage implements OnInit {
   allReservations: Reservation[] = [];
+  loading = true;
 
-  private reservationService = inject(ReservationService);
   private translate = inject(TranslateService);
+  private snackBar = inject(MatSnackBar);
+
   get pendingReservations(): Reservation[] {
-    return this.allReservations.filter(r => r.status === 'Pending');
+    return this.allReservations.filter(r => r.status === 'PENDING');
   }
   get upcomingReservations(): Reservation[] {
-    return this.allReservations.filter(r => r.status === 'Accepted');
+    return this.allReservations.filter(r => r.status === 'ACCEPTED');
   }
   get completedReservations(): Reservation[] {
-    return this.allReservations.filter(r => r.status === 'Completed');
+    return this.allReservations.filter(r => r.status === 'COMPLETED');
   }
   get historyReservations(): Reservation[] {
-    return this.allReservations.filter(r => r.status === 'Cancelled' || r.status === 'Declined');
+    return this.allReservations.filter(r => r.status === 'CANCELLED' || r.status === 'Declined');
   }
 
   ngOnInit(): void {
-    this.loadMockReservations();
+    this.loadRealReservations();
   }
 
-  loadMockReservations(): void {
-    const now = new Date();
-    this.allReservations = [
-      new Reservation({ id: 1, renterName: 'Carlos Villa', bikeName: 'BMX Pro', date: new Date(now.getTime() + 2 * 24 * 3600 * 1000), status: 'Pending', totalPrice: 25.00, renterImage: 'https://randomuser.me/api/portraits/men/32.jpg' }),
-      new Reservation({ id: 2, renterName: 'Lucía Fernández', bikeName: 'Vintage Verde', date: new Date(now.getTime() + 5 * 24 * 3600 * 1000), status: 'Accepted', totalPrice: 40.00, renterImage: 'https://randomuser.me/api/portraits/women/44.jpg' }),
-      new Reservation({ id: 3, renterName: 'Javier Soto', bikeName: 'Mountain X', date: new Date(now.getTime() - 7 * 24 * 3600 * 1000), endDate: new Date(now.getTime() - 6 * 24 * 3600 * 1000), status: 'Completed', totalPrice: 75.00, renterImage: 'https://randomuser.me/api/portraits/men/56.jpg' }),
-      new Reservation({ id: 4, renterName: 'Ana Gómez', bikeName: 'BMX Pro', date: new Date(now.getTime() - 10 * 24 * 3600 * 1000), status: 'Cancelled', totalPrice: 15.00, renterImage: 'https://randomuser.me/api/portraits/women/68.jpg' }),
-      new Reservation({ id: 5, renterName: 'Pedro Pascal', bikeName: 'Vintage Verde', date: new Date(now.getTime() - 15 * 24 * 3600 * 1000), status: 'Declined', totalPrice: 30.00, renterImage: 'https://randomuser.me/api/portraits/men/72.jpg' }),
-    ];
-  }
+  async loadRealReservations() {
+    this.loading = true;
+    const ownerIdStr = localStorage.getItem('userId');
+    if (!ownerIdStr) return;
+    const ownerId = parseInt(ownerIdStr, 10);
 
-  accept(id: number) { console.log(`Aceptando reserva ${id}`); }
-  decline(id: number) { console.log(`Rechazando reserva ${id}`); }
-  contactRenter(reservation: Reservation) {
-    const promptMessage = this.translate.instant('Reservations.ContactPromptMessage', { renterName: reservation.renterName });
+    try {
+      const myBikes: any[] = await catalogService.getAllBikes({ ownerId });
 
-    const message = prompt(promptMessage);
+      if (myBikes.length === 0) {
+        this.allReservations = [];
+        this.loading = false;
+        return;
+      }
+      const reservationsPromises = myBikes.map(bike =>
+        bookingService.getReservations({ bikeId: bike.id })
+      );
 
-    if (message) {
-      console.log(`(Simulación) Mensaje enviado a ${reservation.renterName}: "${message}"`);
-      alert(this.translate.instant('Reservations.ContactSuccess'));
-    } else {
-      console.log('Envío de mensaje cancelado.');
+      const results = await Promise.all(reservationsPromises);
+      const flatReservations = results.flat();
+      const enrichedReservations = await Promise.all(flatReservations.map(async (res: any) => {
+        const bike = myBikes.find(b => b.id === res.bikeId);
+        const bikeName = bike ? bike.model : 'Bici desconocida';
+        let renterName = 'Usuario';
+        let renterImage = '';
+        try {
+          const renterProfile = await identityService.getProfile(res.renterId);
+          renterName = renterProfile.fullName;
+          renterImage = renterProfile.avatarUrl || 'assets/img/default-avatar.png';
+        } catch (e) {
+          console.warn(`No se pudo cargar perfil para renter ${res.renterId}`);
+        }
+        return new Reservation({
+          id: res.id,
+          renterName: renterName,
+          bikeName: bikeName,
+          date: new Date(res.startDate),
+          endDate: new Date(res.endDate),
+          status: res.status,
+          totalPrice: res.totalPrice || 0,
+          renterImage: renterImage
+        });
+      }));
+
+      this.allReservations = enrichedReservations;
+
+    } catch (error) {
+      console.error('Error cargando reservas:', error);
+      this.snackBar.open('Error al cargar reservas', 'Cerrar', { duration: 3000 });
+    } finally {
+      this.loading = false;
     }
   }
-  getStatusInfo(status: Reservation['status']): { class: string; icon: string; textKey: string } {
+
+  async accept(id: number) {
+    try {
+      await bookingService.updateStatus(id, 'ACCEPTED');
+      this.snackBar.open(this.translate.instant('Reservations.StatusAccepted'), 'OK', { duration: 2000 });
+      this.loadRealReservations();
+    } catch (error) {
+      console.error('Error aceptando:', error);
+      this.snackBar.open('Error al aceptar reserva', 'Cerrar', { duration: 3000 });
+    }
+  }
+
+  async decline(id: number) {
+    try {
+      await bookingService.updateStatus(id, 'CANCELLED');
+      this.snackBar.open(this.translate.instant('Reservations.StatusCancelled'), 'OK', { duration: 2000 });
+      this.loadRealReservations();
+    } catch (error) {
+      console.error('Error rechazando:', error);
+    }
+  }
+
+  contactRenter(reservation: Reservation) {
+    const promptMessage = this.translate.instant('Reservations.ContactPromptMessage', { renterName: reservation.renterName });
+    const message = prompt(promptMessage);
+    if (message) {
+      console.log(`Mensaje a ${reservation.renterName}: "${message}"`);
+      alert(this.translate.instant('Reservations.ContactSuccess'));
+    }
+  }
+
+  getStatusInfo(status: string): { class: string; icon: string; textKey: string } {
     switch (status) {
-      case 'Pending': return { class: 'status-pending', icon: 'hourglass_top', textKey: 'Reservations.StatusPending' };
-      case 'Accepted': return { class: 'status-accepted', icon: 'event_available', textKey: 'Reservations.StatusAccepted' };
-      case 'Completed': return { class: 'status-completed', icon: 'check_circle', textKey: 'Reservations.StatusCompleted' };
-      case 'Cancelled': return { class: 'status-cancelled', icon: 'cancel', textKey: 'Reservations.StatusCancelled' };
-      case 'Declined': return { class: 'status-declined', icon: 'block', textKey: 'Reservations.StatusDeclined' };
+      case 'PENDING': return { class: 'status-pending', icon: 'hourglass_top', textKey: 'Reservations.StatusPending' };
+      case 'ACCEPTED': return { class: 'status-accepted', icon: 'event_available', textKey: 'Reservations.StatusAccepted' };
+      case 'COMPLETED': return { class: 'status-completed', icon: 'check_circle', textKey: 'Reservations.StatusCompleted' };
+      case 'CANCELLED': return { class: 'status-cancelled', icon: 'cancel', textKey: 'Reservations.StatusCancelled' };
+      default: return { class: 'status-declined', icon: 'help', textKey: status };
     }
   }
 }

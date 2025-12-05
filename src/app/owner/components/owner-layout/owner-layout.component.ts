@@ -19,7 +19,11 @@ import { NotificationService } from '../../../shared/services/notification.servi
 @Component({
   selector: 'app-owner-layout',
   standalone: true,
-  imports: [ CommonModule, RouterOutlet, SidebarComponent, MatSidenavModule, MatToolbarModule, MatIconModule, MatButtonModule, LanguageSwitcherComponent, TranslateModule, MatMenuModule, MatBadgeModule, RouterLink, MatDividerModule ],
+  imports: [
+    CommonModule, RouterOutlet, SidebarComponent, MatSidenavModule, MatToolbarModule,
+    MatIconModule, MatButtonModule, LanguageSwitcherComponent, TranslateModule,
+    MatMenuModule, MatBadgeModule, RouterLink, MatDividerModule
+  ],
   templateUrl: './owner-layout.component.html',
   styleUrls: ['./owner-layout.component.css']
 })
@@ -37,7 +41,6 @@ export class OwnerLayoutComponent implements OnInit {
   private translate = inject(TranslateService);
   private currentUserService = inject(CurrentUserService);
   private notificationService = inject(NotificationService);
-
   currentUser$: Observable<CurrentUser | null>;
   notifications$: Observable<any[]>;
   unreadCount$: Observable<number>;
@@ -49,12 +52,24 @@ export class OwnerLayoutComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    if (!this.currentUserService.getCurrentUserSnapshot()) {
-      const userId = localStorage.getItem('userId');
-      if (userId) this.currentUserService.loadUser(userId).subscribe();
-    }
+    this.restoreUserSession();
     this.updateTitleOnRouteChange();
   }
+  private restoreUserSession(): void {
+    if (!this.currentUserService.getCurrentUserSnapshot()) {
+      const userIdStr = localStorage.getItem('userId');
+
+      if (userIdStr) {
+        const userId = parseInt(userIdStr, 10);
+        this.currentUserService.loadUser(userId).subscribe({
+          error: () => this.onLogout()
+        });
+      } else {
+        this.router.navigate(['/login']);
+      }
+    }
+  }
+
   onNotificationsClosed(): void {
     this.notificationService.markAllAsRead();
   }
@@ -62,6 +77,8 @@ export class OwnerLayoutComponent implements OnInit {
   onLogout(): void {
     this.notificationService.clearNotifications();
     localStorage.removeItem('userId');
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
     this.router.navigateByUrl('/login');
   }
 

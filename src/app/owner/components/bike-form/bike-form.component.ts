@@ -6,9 +6,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatSelectModule } from '@angular/material/select';
 import { MatButtonModule } from '@angular/material/button';
 import { TranslateModule } from '@ngx-translate/core';
+import { MatIconModule } from '@angular/material/icon';
 import * as L from 'leaflet';
 import { Bike } from '../../model/bike.entity';
-import { MatIconModule } from '@angular/material/icon';
 
 @Component({
   selector: 'app-bike-form',
@@ -28,7 +28,7 @@ import { MatIconModule } from '@angular/material/icon';
 })
 export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() bikeToEdit: Bike | null = null;
-  @Output() formSubmitted = new EventEmitter<Bike>();
+  @Output() formSubmitted = new EventEmitter<any>();
   @Output() formCancelled = new EventEmitter<void>();
 
   @ViewChild('formMapContainer') private formMapContainer!: ElementRef;
@@ -36,7 +36,13 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
   private marker: L.Marker | null = null;
 
   bikeForm: FormGroup;
-  bikeTypes = ['Urbana', 'Montañera', 'BMX', 'Deportiva', 'Eléctrica'];
+
+  bikeTypes = [
+    { value: 'URBANA', label: 'Urbana' },
+    { value: 'MTB', label: 'Montañera' },
+    { value: 'ROAD', label: 'Deportiva / Ruta' },
+    { value: 'EBIKE', label: 'Eléctrica' }
+  ];
 
   constructor(private fb: FormBuilder) {
     this.bikeForm = this.fb.group({
@@ -48,23 +54,32 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
       lng: [null, Validators.required]
     });
   }
-
   ngOnInit(): void {
     if (this.bikeToEdit) {
-      this.bikeForm.patchValue(this.bikeToEdit);
+      this.bikeForm.patchValue({
+        model: this.bikeToEdit.model,
+        type: this.bikeToEdit.type,
+        costPerMinute: this.bikeToEdit.costPerMinute,
+        imageUrl: this.bikeToEdit.imageUrl,
+        lat: this.bikeToEdit.lat,
+        lng: this.bikeToEdit.lng
+      });
     }
   }
 
   ngAfterViewInit(): void {
-    this.initMap();
+    setTimeout(() => this.initMap(), 0);
   }
 
   ngOnDestroy(): void {
-    this.map?.remove();
+    if (this.map) {
+      this.map.remove();
+    }
   }
 
   initMap(): void {
-    const initialCoords: L.LatLngTuple = this.bikeToEdit
+    if (!this.formMapContainer) return;
+    const initialCoords: L.LatLngTuple = (this.bikeToEdit && this.bikeToEdit.lat && this.bikeToEdit.lng)
       ? [this.bikeToEdit.lat, this.bikeToEdit.lng]
       : [-12.09, -77.05];
 
@@ -76,8 +91,10 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     this.map.on('click', (e: L.LeafletMouseEvent) => {
+      const coords: L.LatLngTuple = [e.latlng.lat, e.latlng.lng];
       this.bikeForm.patchValue({ lat: e.latlng.lat, lng: e.latlng.lng });
-      this.updateMarker([e.latlng.lat, e.latlng.lng]);
+      this.bikeForm.markAsDirty();
+      this.updateMarker(coords);
     });
   }
 
@@ -97,5 +114,14 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onCancel(): void {
     this.formCancelled.emit();
+  }
+  get formattedLat(): string {
+    const val = this.bikeForm.get('lat')?.value;
+    return (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(4) : 'N/A';
+  }
+
+  get formattedLng(): string {
+    const val = this.bikeForm.get('lng')?.value;
+    return (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(4) : 'N/A';
   }
 }

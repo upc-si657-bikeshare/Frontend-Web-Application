@@ -1,7 +1,7 @@
 import { Component, OnInit, AfterViewInit, OnDestroy, ElementRef, ViewChild, NgZone, inject, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { TranslateModule } from '@ngx-translate/core';
+import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import * as L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -9,8 +9,13 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { ReservationDialogComponent, ReservationDialogData } from '../../../shared/components/reservation-dialog/reservation-dialog.component';
 
+import { catalogService } from '../../../../api/catalogService';
+import { identityService } from '../../../../api/identityService';
+import { bookingService } from '../../../../api/bookingService';
+
 interface Bike {
   id: number;
+  ownerId: number;
   owner: string;
   ownerPhoto: string;
   type: string;
@@ -23,14 +28,6 @@ interface Bike {
 
 const FALLBACK_OWNER = 'https://media.istockphoto.com/id/1171169099/es/foto/hombre-con-brazos-cruzados-aislados-sobre-fondo-gris.jpg?s=612x612&w=0&k=20&c=8qDLKdLMm2i8DHXY6crX6a5omVh2IxqrOxJV2QGzgFg=';
 const FALLBACK_BIKE  = 'https://www.monark.com.pe/static/monark-pe/uploads/products/images/bicicleta-monark-highlander-xt-aro-29-rojo-negro-01.jpg';
-
-const BIKES: Bike[] = [
-  { id: 1, owner: 'Luis Alaya', ownerPhoto: 'https://randomuser.me/api/portraits/men/32.jpg', type: 'BMX', costPerMinute: 0.5, lat: -12.1050, lng: -77.0350, imageUrl: 'https://cdn.skatepro.com/product/520/mankind-thunder-20-bmx-freestyle-bike-8h.webp' },
-  { id: 2, owner: 'María Pérez', ownerPhoto: 'https://randomuser.me/api/portraits/women/44.jpg', type: 'Montañera', costPerMinute: 0.8, lat: -12.0790, lng: -77.0870, imageUrl: 'https://images.squarespace-cdn.com/content/v1/5c38c1a931d4dfa4282305a3/1547225184651-S2PO613H621C4G57EX7D/specialized-pitch-sport-womens-hardtail-mountain-bike-2019-gloss-storm-grey-acid-lava.jpg' },
-  { id: 3, owner: 'Carlos Ruiz', ownerPhoto: 'https://randomuser.me/api/portraits/men/56.jpg', type: 'Urbana', costPerMinute: 0.4, lat: -12.1210, lng: -77.0300, imageUrl: FALLBACK_BIKE },
-  { id: 4, owner: 'Ana Gómez', ownerPhoto: 'https://randomuser.me/api/portraits/women/68.jpg', type: 'Deportiva', costPerMinute: 0.9, lat: -12.0960, lng: -77.0440, imageUrl: 'https://i.ebayimg.com/images/g/5O4AAOSw~-dlNVKg/s-l1600.jpg' },
-  { id: 5, owner: 'Juan Soto', ownerPhoto: 'https://randomuser.me/api/portraits/men/72.jpg', type: 'BMX', costPerMinute: 0.5, lat: -12.1050, lng: -76.9630, imageUrl: 'https://cdn.skatepro.com/product/520/mankind-thunder-20-bmx-freestyle-bike-8h.webp' }
-];
 
 @Component({
   selector: 'app-map-page',
@@ -48,9 +45,11 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   private cdr = inject(ChangeDetectorRef);
   private dialog = inject(MatDialog);
   private snackBar = inject(MatSnackBar);
+  private translate = inject(TranslateService);
 
-  bikes = BIKES;
+  bikes: Bike[] = [];
   bikeTypes: string[] = [];
+
   priceLabels = ['Todos', '≤ S/ 0.5', 'S/ 0.5 – 0.8', '> S/ 0.8'];
   priceRanges = [
     { label: 'Todos', min: 0, max: Infinity },
@@ -61,59 +60,144 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
 
   filteredBikes: Bike[] = [];
   selectedBike: Bike | null = null;
+  loading = false;
 
   ngOnInit(): void {
-    this.bikeTypes = Array.from(new Set(this.bikes.map(b => b.type)));
-    this.filteredBikes = [...this.bikes];
+    this.loadAvailableBikes();
   }
 
   ngAfterViewInit(): void {
     this.initMap();
-    this.updateMarkers();
-    setTimeout(() => this.map.invalidateSize(), 200);
   }
 
   ngOnDestroy(): void {
     this.map?.remove();
   }
 
+  async loadAvailableBikes() {
+    this.loading = true;
+    try {
+      const bikesData: any[] = await catalogService.getAllBikes({ status: 'AVAILABLE' });
+      const enrichedBikes = await Promise.all(bikesData.map(async (b: any) => {
+        let ownerName = 'Propietario';
+        let ownerPhoto = FALLBACK_OWNER;
+
+        try {
+          const profile = await identityService.getProfile(b.ownerId);
+          ownerName = profile.fullName;
+          ownerPhoto = profile.avatarUrl || FALLBACK_OWNER;
+        } catch (e) {
+          console.warn(`No se pudo cargar dueño para bici ${b.id}`);
+        }
+
+        return {
+          id: b.id,
+          ownerId: b.ownerId,
+          owner: ownerName,
+          ownerPhoto: ownerPhoto,
+          type: b.type,
+          costPerMinute: b.costPerMinute,
+          lat: b.latitude,
+          lng: b.longitude,
+          imageUrl: b.imageUrl || FALLBACK_BIKE
+        } as Bike;
+      }));
+
+      this.bikes = enrichedBikes;
+      this.filteredBikes = [...this.bikes];
+      this.bikeTypes = Array.from(new Set(this.bikes.map(b => b.type)));
+      this.updateMarkers();
+      if (this.bikes.length > 0 && this.map) {
+        const bounds = L.latLngBounds(this.bikes.map(b => [b.lat, b.lng]));
+        this.map.fitBounds(bounds, { padding: [50, 50] });
+      }
+
+    } catch (error) {
+      console.error('Error cargando bicicletas:', error);
+      this.snackBar.open('Error al cargar el mapa de bicicletas', 'Cerrar', { duration: 3000 });
+    } finally {
+      this.loading = false;
+    }
+  }
+
   openReservationDialog(): void {
     if (!this.selectedBike) return;
+
     const dialogData: ReservationDialogData = {
       bikeName: `${this.selectedBike.type} de ${this.selectedBike.owner}`,
       pricePerMinute: this.selectedBike.costPerMinute,
       imageUrl: this.selectedBike.imageUrl
     };
+
     const dialogRef = this.dialog.open(ReservationDialogComponent, {
       width: '450px',
       data: dialogData,
       disableClose: true
     });
-    dialogRef.afterClosed().subscribe(confirmed => {
+
+    dialogRef.afterClosed().subscribe(async (confirmed) => {
       if (confirmed) {
-        this.snackBar.open(`¡Has reservado la ${this.selectedBike?.type} de ${this.selectedBike?.owner}!`, 'OK', { duration: 3000 });
-        this.selectedBike = null;
+        await this.createReservation();
       }
     });
+  }
+
+  async createReservation() {
+    const renterIdStr = localStorage.getItem('userId');
+    if (!renterIdStr || !this.selectedBike) {
+      this.snackBar.open('Debes iniciar sesión para reservar', 'Cerrar');
+      return;
+    }
+
+    try {
+      const now = new Date();
+      const oneHourLater = new Date(now.getTime() + 60 * 60 * 1000);
+
+      const reservationPayload = {
+        renterId: parseInt(renterIdStr, 10),
+        bikeId: this.selectedBike.id,
+        startDate: now.toISOString(),
+        endDate: oneHourLater.toISOString()
+      };
+
+      await bookingService.createReservation(reservationPayload);
+      this.snackBar.open(
+        `¡Reserva exitosa! Disfruta la ${this.selectedBike.type}.`,
+        'OK',
+        { duration: 4000 }
+      );
+
+      this.selectedBike = null;
+      this.loadAvailableBikes();
+
+    } catch (error) {
+      console.error('Error creando reserva:', error);
+      this.snackBar.open('Error al procesar la reserva', 'Cerrar', { duration: 3000 });
+    }
   }
 
   onOwnerImageError(event: Event) { (event.target as HTMLImageElement).src = FALLBACK_OWNER; }
   onBikeImageError(event: Event) { (event.target as HTMLImageElement).src = FALLBACK_BIKE; }
 
   private initMap(): void {
+    if (!this.mapContainer) return;
     this.map = L.map(this.mapContainer.nativeElement, { center: [-12.09, -77.05], zoom: 14 });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(this.map);
     this.markersLayer.addTo(this.map);
   }
+
   applyFilters(district: string, type: string, priceLabel: string) {
     this.selectedBike = null;
     if (district.trim()) {
       this.searchDistrict(district.trim());
     }
+
     let list = [...this.bikes];
+
     if (type) {
       list = list.filter(b => b.type === type);
     }
+
     const prLabel = priceLabel || 'Todos';
     const pr = this.priceRanges.find(p => p.label === prLabel)!;
     list = list.filter(b => b.costPerMinute >= pr.min && b.costPerMinute < pr.max);
@@ -129,21 +213,26 @@ export class MapPage implements OnInit, AfterViewInit, OnDestroy {
   private updateMarkers() {
     this.markersLayer.clearLayers();
     this.filteredBikes.forEach(b => {
-      const icon = L.icon({ iconUrl: 'assets/img/map-marker.svg', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
-      const marker = L.marker([b.lat, b.lng], { icon }).addTo(this.markersLayer)
-        .bindPopup(`<b>${b.owner}</b><br>${b.type}`);
-      marker.on('click', () => {
-        this.ngZone.run(() => {
-          this.selectBike(b);
-          this.cdr.detectChanges();
+      if (b.lat && b.lng) {
+        const icon = L.icon({ iconUrl: 'assets/img/map-marker.svg', iconSize: [32, 32], iconAnchor: [16, 32], popupAnchor: [0, -32] });
+        const marker = L.marker([b.lat, b.lng], { icon }).addTo(this.markersLayer)
+          .bindPopup(`<b>${b.owner}</b><br>${b.type} - S/ ${b.costPerMinute}/min`);
+
+        marker.on('click', () => {
+          this.ngZone.run(() => {
+            this.selectBike(b);
+            this.cdr.detectChanges();
+          });
         });
-      });
+      }
     });
   }
 
   selectBike(b: Bike) {
     this.selectedBike = b;
-    this.map.flyTo([b.lat, b.lng], 16);
+    if (this.map) {
+      this.map.flyTo([b.lat, b.lng], 16);
+    }
   }
 
   private searchDistrict(query: string) {

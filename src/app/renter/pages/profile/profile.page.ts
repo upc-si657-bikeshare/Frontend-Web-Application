@@ -1,7 +1,6 @@
 import { Component, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { MatButtonModule } from '@angular/material/button';
@@ -15,6 +14,7 @@ import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { CurrentUser, CurrentUserService } from '../../../shared/services/current-user.service';
 import { ReviewsDialogComponent } from '../../../shared/components/reviews-dialog/reviews-dialog.component';
 import { ChangePasswordDialogComponent } from '../../../shared/components/change-password-dialog/change-password-dialog.component';
+import { identityService } from '../../../../api/identityService';
 
 @Component({
   selector: 'app-profile-page',
@@ -28,19 +28,21 @@ export class ProfilePage implements OnInit {
   private snackBar = inject(MatSnackBar);
   private translate = inject(TranslateService);
   private dialog = inject(MatDialog);
-  private http = inject(HttpClient);
   private currentUserService = inject(CurrentUserService);
 
   userData: CurrentUser | null = null;
   renterProfileData: any = {};
+
   personalInfoForm: FormGroup;
   preferencesForm: FormGroup;
+
   personalInfoEditMode = false;
   passwordVisible = false;
-  currentPasswordMock = 'supersecretpassword';
+  currentPasswordMock = '••••••••';
 
   paymentMethods = ['Profile.Payment.Yape', 'Profile.Payment.Paypal', 'Profile.Payment.Debit', 'Profile.Payment.Credit'];
   bikeTypes = ['Profile.BikeType.Any', 'Profile.BikeType.Vintage', 'Profile.BikeType.BMX', 'Profile.BikeType.Sport', 'Profile.BikeType.Mountain'];
+
   reviewsMade: any[] = [];
   stars = Array(5).fill(0);
 
@@ -52,6 +54,7 @@ export class ProfilePage implements OnInit {
       address: ['', Validators.required],
       avatar: ['']
     });
+
     this.preferencesForm = this.fb.group({
       paymentMethod: [''],
       preferredBikeType: [''],
@@ -59,27 +62,48 @@ export class ProfilePage implements OnInit {
     });
   }
 
-  ngOnInit() { this.loadInitialData(); }
+  ngOnInit() {
+    this.loadInitialData();
+  }
 
-  private loadInitialData() {
-    const userId = localStorage.getItem('userId');
-    if (!userId) return;
+  private async loadInitialData() {
+    const userIdStr = localStorage.getItem('userId');
+    if (!userIdStr) return;
 
-    this.currentUserService.loadUser(userId).subscribe(user => {
-      this.userData = user;
-      if (user.password) this.currentPasswordMock = user.password;
-      this.personalInfoForm.patchValue({ name: user.fullName, email: user.email, phone: user.phone, address: user.address, avatar: user.avatar });
-    });
+    const userId = parseInt(userIdStr, 10);
 
-    this.http.get<any[]>(`https://6824eacb0f0188d7e72b5f57.mockapi.io/api/v1/renterProfiles?userId=${userId}`)
-      .subscribe(profiles => {
-        this.renterProfileData = profiles[0] || {};
-        this.preferencesForm.patchValue({
-          paymentMethod: this.renterProfileData.paymentMethod || 'Profile.Payment.Paypal',
-          preferredBikeType: this.renterProfileData.preferredBikeType || 'Profile.BikeType.Any',
-          notifications: this.renterProfileData.notifications !== undefined ? this.renterProfileData.notifications : true
-        });
+    try {
+      const profile = await identityService.getProfile(userId);
+      this.renterProfileData = profile;
+      this.personalInfoForm.patchValue({
+        name: profile.fullName,
+        email: profile.email,
+        phone: profile.phone,
+        address: profile.address,
+        avatar: profile.avatarUrl
       });
+
+      this.preferencesForm.patchValue({
+        paymentMethod: profile.paymentMethod || 'Profile.Payment.Paypal',
+        preferredBikeType: profile.preferredBikeType || 'Profile.BikeType.Any',
+        notifications: profile.notificationsEnabled !== undefined ? profile.notificationsEnabled : true
+      });
+      this.currentUserService.updateCurrentUser({
+        id: profile.id,
+        fullName: profile.fullName,
+        email: profile.email,
+        avatar: profile.avatarUrl,
+        phone: profile.phone,
+        publicBio: profile.publicBio,
+        address: profile.address
+      });
+
+      this.currentUserService.currentUser$.subscribe(user => this.userData = user);
+
+    } catch (error) {
+      console.error('Error cargando perfil:', error);
+      this.snackBar.open(this.translate.instant('Profile.ErrorLoad'), 'OK', { duration: 3000 });
+    }
 
     this.reviewsMade = [
       { ownerName: 'Ana', bikeModel: 'BMX Pro', rating: 5, comment: 'La bici de Ana es increíble, muy buen estado.', date: 'Hace 1 semana', ownerImage: 'https://randomuser.me/api/portraits/women/44.jpg' },
@@ -95,53 +119,69 @@ export class ProfilePage implements OnInit {
     if (!this.personalInfoEditMode) return;
     const promptMessage = this.translate.instant('Profile.ChangePicturePrompt');
     const newImageUrl = prompt(promptMessage, this.personalInfoForm.get('avatar')?.value || '');
+
     if (newImageUrl && newImageUrl.trim() !== '') {
       this.personalInfoForm.patchValue({ avatar: newImageUrl });
     }
   }
 
   toggleEditPersonalInfo() {
-    if (this.personalInfoEditMode) { this.saveAllData(); }
-    else {
+    if (this.personalInfoEditMode) {
+      this.saveAllData();
+    } else {
       this.personalInfoForm.enable();
       this.preferencesForm.enable();
+      this.personalInfoForm.get('email')?.disable();
+
       this.personalInfoEditMode = true;
     }
   }
 
   cancelEditPersonalInfo() {
+    this.personalInfoEditMode = false;
     this.loadInitialData();
   }
 
-  private saveAllData() {
-    if (!this.personalInfoForm.valid || !this.preferencesForm.valid || !this.userData) {
-      this.snackBar.open(this.translate.instant('Profile.ErrorForm'), this.translate.instant('Profile.Close'), { duration: 3000 });
+  private async saveAllData() {
+    if (this.personalInfoForm.invalid || this.preferencesForm.invalid || !this.userData) {
+      this.snackBar.open(this.translate.instant('Profile.ErrorForm'),
+        this.translate.instant('Profile.Close'),
+        { duration: 3000 });
       return;
     }
-    const personalValues = this.personalInfoForm.value;
-    const preferenceValues = this.preferencesForm.value;
-    const updatedUser: CurrentUser = { ...this.userData, fullName: personalValues.name, email: personalValues.email, phone: personalValues.phone, address: personalValues.address, avatar: personalValues.avatar };
-    const finalUpdate = { ...updatedUser, ...preferenceValues };
 
-    this.http.put(`https://6824eacb0f0188d7e72b5f57.mockapi.io/api/v1/users2/${this.userData.id}`, finalUpdate)
-      .subscribe(() => {
-        this.currentUserService.updateCurrentUser({ fullName: finalUpdate.fullName, avatar: finalUpdate.avatar });
-        this.snackBar.open(this.translate.instant('Profile.Saved'), this.translate.instant('Profile.OK'), { duration: 2000 });
-        this.personalInfoForm.disable();
-        this.preferencesForm.disable();
-        this.personalInfoEditMode = false;
-      });
+    try {
+      const userId = this.userData.id;
+      const personalValues = this.personalInfoForm.getRawValue();
+      const preferenceValues = this.preferencesForm.value;
+      const updatePayload = {
+        fullName: personalValues.name,
+        phone: personalValues.phone,
+        address: personalValues.address,
+        avatarUrl: personalValues.avatar,
+        paymentMethod: preferenceValues.paymentMethod,
+        preferredBikeType: preferenceValues.preferredBikeType,
+        notificationsEnabled: preferenceValues.notifications
+      };
+      await identityService.updateRenterProfile(userId, updatePayload);
+      this.snackBar.open(this.translate.instant('Profile.Saved'),
+        this.translate.instant('Profile.OK'),
+        { duration: 2000 });
+
+      this.personalInfoEditMode = false;
+      this.loadInitialData();
+
+    } catch (error) {
+      console.error('Error guardando perfil:', error);
+      this.snackBar.open(this.translate.instant('Profile.ErrorSave'), 'Cerrar', { duration: 3000 });
+    }
   }
 
   openChangePasswordDialog() {
     const dialogRef = this.dialog.open(ChangePasswordDialogComponent, { width: '400px', disableClose: true });
     dialogRef.afterClosed().subscribe((result: { newPassword?: string } | undefined) => {
-      if (result && result.newPassword && this.userData) {
-        this.http.put(`https://6824eacb0f0188d7e72b5f57.mockapi.io/api/v1/users2/${this.userData.id}`, { ...this.userData, password: result.newPassword })
-          .subscribe(() => {
-            this.currentPasswordMock = result.newPassword!;
-            this.snackBar.open(this.translate.instant('Password.Success'), this.translate.instant('Profile.OK'), { duration: 3000 });
-          });
+      if (result && result.newPassword) {
+        this.snackBar.open('Cambio de contraseña no implementado en backend', 'OK', { duration: 3000 });
       }
     });
   }
@@ -162,12 +202,8 @@ export class ProfilePage implements OnInit {
   }
 
   getStarType(rating: number, index: number): string {
-    if (rating >= index) {
-      return 'star';
-    } else if (rating >= index - 0.5) {
-      return 'star_half';
-    } else {
-      return 'star_border';
-    }
+    if (rating >= index) return 'star';
+    else if (rating >= index - 0.5) return 'star_half';
+    else return 'star_border';
   }
 }

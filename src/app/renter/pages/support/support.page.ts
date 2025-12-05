@@ -10,6 +10,7 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { SupportTicketDialogComponent } from '../../../shared/components/support-ticket-dialog/support-ticket-dialog.component';
+import { supportService } from '../../../../api/supportService';
 
 @Component({
   selector: 'app-support-page',
@@ -28,18 +29,15 @@ export class SupportPage implements OnInit {
   private translate = inject(TranslateService);
   private dialog = inject(MatDialog);
 
-  supportTickets: any[] = [
-    { id: 1, asunto: 'Error al reservar una bicicleta', fecha: '05/06/2025', estado: 'Resuelto' },
-    { id: 2, asunto: 'Problema con el pago de Yape', fecha: '08/06/2025', estado: 'En Proceso' },
-    { id: 3, asunto: 'La bicicleta tenía una llanta baja', fecha: '12/06/2025', estado: 'Resuelto' },
-  ];
+  supportTickets: any[] = [];
+
   newRequestForm: FormGroup;
   categories: string[] = [
-    'Support.Category.Booking',
-    'Support.Category.Payment',
-    'Support.Category.Technical',
-    'Support.Category.Suggestions',
-    'Support.Category.Other'
+    'Reservas',
+    'Pagos',
+    'Técnico',
+    'Sugerencias',
+    'Otro'
   ];
   selectedFileName: string | null = null;
 
@@ -52,21 +50,61 @@ export class SupportPage implements OnInit {
     });
   }
 
-  ngOnInit(): void {}
+  ngOnInit(): void {
+    this.loadTickets();
+  }
 
-  onSubmit() {
+  async loadTickets() {
+    const userIdStr = localStorage.getItem('userId');
+    if (!userIdStr) return;
+    const userId = parseInt(userIdStr, 10);
+
+    try {
+      const data: any[] = await supportService.getTickets(userId);
+      this.supportTickets = data.map(ticket => ({
+        id: ticket.id,
+        asunto: ticket.subject,
+        fecha: new Date(ticket.createdAt).toLocaleDateString(),
+        estado: ticket.status,
+        mensaje: ticket.message,
+        categoria: ticket.category
+      }));
+    } catch (error) {
+      console.error('Error cargando tickets:', error);
+    }
+  }
+
+  async onSubmit() {
     if (this.newRequestForm.valid) {
-      console.log('Enviando nueva solicitud (Renter):', this.newRequestForm.value);
-      this.snackBar.open(this.translate.instant('Support.Success'), this.translate.instant('Profile.OK'), { duration: 3000 });
-      this.newRequestForm.reset();
-      this.selectedFileName = null;
-      Object.keys(this.newRequestForm.controls).forEach(key => {
-        this.newRequestForm.get(key)?.setErrors(null);
-        this.newRequestForm.get(key)?.markAsPristine();
-        this.newRequestForm.get(key)?.markAsUntouched();
-      });
+      const userIdStr = localStorage.getItem('userId');
+      if (!userIdStr) {
+        this.snackBar.open('Error de sesión', 'Cerrar');
+        return;
+      }
+
+      try {
+        const formValue = this.newRequestForm.value;
+        const ticketData = {
+          userId: parseInt(userIdStr, 10),
+          subject: formValue.asunto,
+          category: formValue.categoria,
+          message: formValue.mensaje
+        };
+        await supportService.createTicket(ticketData);
+        this.snackBar.open(this.translate.instant('Support.Success'), 'OK', { duration: 3000 });
+        this.newRequestForm.reset();
+        this.selectedFileName = null;
+        Object.keys(this.newRequestForm.controls).forEach(key => {
+          this.newRequestForm.get(key)?.setErrors(null);
+        });
+        this.loadTickets();
+
+      } catch (error) {
+        console.error('Error creando ticket:', error);
+        this.snackBar.open(this.translate.instant('Support.ErrorGeneric'), 'Cerrar', { duration: 3000 });
+      }
     } else {
-      this.snackBar.open(this.translate.instant('Support.ErrorRequired'), this.translate.instant('Profile.Close'), { duration: 3000 });
+      this.snackBar.open(this.translate.instant('Support.ErrorRequired'), 'Cerrar', { duration: 3000 });
     }
   }
 
@@ -78,6 +116,7 @@ export class SupportPage implements OnInit {
       this.selectedFileName = file.name;
     }
   }
+
   viewDetails(ticketId: number): void {
     const ticketData = this.supportTickets.find(ticket => ticket.id === ticketId);
     if (ticketData) {
@@ -85,20 +124,26 @@ export class SupportPage implements OnInit {
         width: '550px',
         data: ticketData
       });
-    } else {
-      console.error('No se encontró el ticket con ID:', ticketId);
     }
   }
 
   translateStatus(estado: string): string {
-    if (estado === 'Resuelto') return this.translate.instant('Support.StatusResolved');
-    if (estado === 'En Proceso') return this.translate.instant('Support.StatusInProgress');
-    return estado;
+    switch (estado) {
+      case 'OPEN': return this.translate.instant('Support.StatusOpen') || 'Abierto';
+      case 'IN_PROGRESS': return this.translate.instant('Support.StatusInProgress');
+      case 'RESOLVED': return this.translate.instant('Support.StatusResolved');
+      case 'CLOSED': return this.translate.instant('Support.StatusClosed');
+      default: return estado;
+    }
   }
 
   getStatusClass(estado: string): string {
-    if (estado === 'Resuelto') return 'status-resolved';
-    if (estado === 'En Proceso') return 'status-in-progress';
-    return '';
+    switch (estado) {
+      case 'RESOLVED': return 'status-resolved';
+      case 'IN_PROGRESS': return 'status-in-progress';
+      case 'CLOSED': return 'status-closed';
+      case 'OPEN': return 'status-open';
+      default: return '';
+    }
   }
 }

@@ -8,6 +8,10 @@ import { CurrentUserService } from '../../../shared/services/current-user.servic
 import { DashboardStats } from '../../model/dashboard-stats.entity';
 import { Reservation } from '../../model/reservation.entity';
 import { Bike } from '../../model/bike.entity';
+import { bookingService } from '../../../../api/bookingService';
+import { catalogService } from '../../../../api/catalogService';
+import { identityService } from '../../../../api/identityService';
+
 export interface RecentActivity {
   type: 'reservation' | 'review' | 'cancellation';
   person: string;
@@ -31,18 +35,20 @@ export interface RecentActivity {
 })
 export class OwnerHomePage implements OnInit {
   ownerName = '';
-  stats!: DashboardStats;
+  stats: DashboardStats = new DashboardStats();
   pendingReservations: Reservation[] = [];
   recentActivities: RecentActivity[] = [];
   topBikes: Bike[] = [];
+
   private router = inject(Router);
   private notificationService = inject(NotificationService);
   private currentUserService = inject(CurrentUserService);
 
   ngOnInit(): void {
     this.fetchOwnerName();
-    this.loadDashboardData();
+    this.loadRealDashboardData();
   }
+
   private fetchOwnerName(): void {
     this.currentUserService.currentUser$.subscribe(user => {
       if (user) {
@@ -50,47 +56,99 @@ export class OwnerHomePage implements OnInit {
       }
     });
   }
+  private async loadRealDashboardData() {
+    const ownerIdStr = localStorage.getItem('userId');
+    if (!ownerIdStr) return;
+    const ownerId = parseInt(ownerIdStr, 10);
 
-  private loadDashboardData(): void {
-    this.stats = new DashboardStats({
-      monthlyIncome: 750.50,
-      pendingReservationsCount: 2,
-      activeBikesCount: 8,
-      ownerRating: 4.9
-    });
-    this.pendingReservations = [
-      new Reservation({ id: 1, renterName: 'Carlos Villa', bikeName: 'BMX Pro', date: new Date('2025-06-17T14:00:00'), status: 'Pending' }),
-      new Reservation({ id: 2, renterName: 'Lucía Fernández', bikeName: 'Vintage Verde', date: new Date('2025-06-18T10:00:00'), status: 'Pending' }),
-      new Reservation({ id: 3, renterName: 'Javier Soto', bikeName: 'Mountain X', date: new Date('2025-06-19T09:00:00'), status: 'Pending' })
-    ];
-    const allActivities: RecentActivity[] = [
-      { type: 'reservation',  person: 'Javier Soto',   bikeName: 'Mountain X',    timestamp: new Date() },
-      { type: 'review',       person: 'Maria Rojas',   bikeName: 'BMX Pro',       timestamp: new Date(Date.now() -  3 * 3600_000) },
-      { type: 'cancellation', person: 'Pedro Gomez',   bikeName: 'Vintage Verde', timestamp: new Date(Date.now() - 24 * 3600_000) },
-      { type: 'reservation',  person: 'Ana Ruiz',      bikeName: 'City Light',    timestamp: new Date(Date.now() - 48 * 3600_000) },
-      { type: 'review',       person: 'Luis Herrera',  bikeName: 'Urban Glide',   timestamp: new Date(Date.now() - 72 * 3600_000) },
-      { type: 'reservation',  person: 'Carla Vega',    bikeName: 'Trail Blazer',  timestamp: new Date(Date.now() - 96 * 3600_000) },
-      { type: 'cancellation', person: 'Andrés Patiño', bikeName: 'Speedster',     timestamp: new Date(Date.now() - 120 * 3600_000) },
-    ];
-    this.recentActivities = allActivities.slice(0, 7);
-    this.notificationService.setNotifications(this.recentActivities);
-    this.topBikes = [
-      new Bike({ id: 101, model: 'BMX Pro',        type: 'BMX',       rentalsThisMonth: 15, imageUrl: 'https://cdn.skatepro.com/product/520/mankind-thunder-20-bmx-freestyle-bike-8h.webp' }),
-      new Bike({ id: 102, model: 'Vintage Verde',  type: 'Urbana',    rentalsThisMonth: 12, imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRdDydP4N9WKFYaT6cZoxxGCw5kL2BVGseLww&s' }),
-      new Bike({ id: 103, model: 'Mountain X',     type: 'Montañera', rentalsThisMonth:  9, imageUrl: 'https://cuponassets.cuponatic-latam.com/backendPe/uploads/imagenes_descuentos/102109/f001f03a7ed89e3960ac9e197306a6d70f138fac.XL2.jpg' }),
-      new Bike({ id: 104, model: 'City Light',     type: 'Urbana',    rentalsThisMonth:  8, imageUrl: 'https://via.placeholder.com/220x140?text=City+Light' }),
-    ];
+    try {
+      const myBikesData: any[] = await catalogService.getAllBikes({ ownerId });
+      const myBikes = myBikesData.map(b => new Bike(b));
+      const reservationsPromises = myBikes.map(bike =>
+        bookingService.getReservations({ bikeId: bike.id })
+      );
+      const results = await Promise.all(reservationsPromises);
+      const allReservationsRaw = results.flat();
+      const monthlyIncome = allReservationsRaw
+        .filter((r: any) => r.status === 'COMPLETED')
+        .reduce((sum: number, r: any) => sum + (r.totalPrice || 0), 0);
+      const pendingCount = allReservationsRaw.filter((r: any) => r.status === 'PENDING').length;
+
+      this.stats = new DashboardStats({
+        monthlyIncome: monthlyIncome,
+        pendingReservationsCount: pendingCount,
+        activeBikesCount: myBikes.length,
+        ownerRating: 4.8
+      });
+      const pendingRaw = allReservationsRaw
+        .filter((r: any) => r.status === 'PENDING')
+        .slice(0, 3);
+
+      this.pendingReservations = await Promise.all(pendingRaw.map(async (res: any) => {
+        const bike = myBikes.find(b => b.id === res.bikeId);
+        let renterName = 'Usuario';
+        try {
+          const profile = await identityService.getProfile(res.renterId);
+          renterName = profile.fullName;
+        } catch(e) {}
+
+        return new Reservation({
+          id: res.id,
+          renterName: renterName,
+          bikeName: bike ? bike.model : 'Bici',
+          date: new Date(res.startDate),
+          status: 'PENDING',
+          totalPrice: res.totalPrice
+        });
+      }));
+      const recentRaw = allReservationsRaw
+        .sort((a: any, b: any) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+        .slice(0, 5);
+
+      this.recentActivities = await Promise.all(recentRaw.map(async (res: any) => {
+        const bike = myBikes.find(b => b.id === res.bikeId);
+        let renterName = 'Usuario';
+        try {
+          const profile = await identityService.getProfile(res.renterId);
+          renterName = profile.fullName;
+        } catch(e) {}
+
+        return {
+          type: res.status === 'CANCELLED' ? 'cancellation' : 'reservation',
+          person: renterName,
+          bikeName: bike ? bike.model : 'Bici',
+          timestamp: new Date(res.startDate)
+        };
+      }));
+      this.notificationService.setNotifications(this.recentActivities);
+      this.topBikes = myBikes.slice(0, 4);
+
+    } catch (error) {
+      console.error('Error cargando dashboard:', error);
+    }
   }
 
   navigateToAddBike(): void {
     this.router.navigate(['/owner/my-bikes']);
   }
 
-  acceptReservation(id: number): void {
-    console.log(`Aceptando reserva con ID: ${id}`);
+  async acceptReservation(id: number) {
+    try {
+      await bookingService.updateStatus(id, 'ACCEPTED');
+      console.log(`Reserva ${id} aceptada`);
+      this.loadRealDashboardData();
+    } catch (error) {
+      console.error('Error al aceptar:', error);
+    }
   }
 
-  declineReservation(id: number): void {
-    console.log(`Rechazando reserva con ID: ${id}`);
+  async declineReservation(id: number) {
+    try {
+      await bookingService.updateStatus(id, 'CANCELLED');
+      console.log(`Reserva ${id} rechazada`);
+      this.loadRealDashboardData();
+    } catch (error) {
+      console.error('Error al rechazar:', error);
+    }
   }
 }

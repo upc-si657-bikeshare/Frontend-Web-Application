@@ -2,6 +2,7 @@
 
   <ng-container *ngIf="!isEditing; else formView">
     <div class="page-layout">
+
       <div class="list-panel">
         <header class="list-header">
           <h1>{{ 'MyBikes.Title' | translate }}</h1>
@@ -12,12 +13,18 @@
         </header>
 
         <div class="bike-list">
-          <div class="bike-list-item" *ngFor="let bike of myBikes" (click)="selectBike(bike)" [class.selected]="bike.id === selectedBike?.id">
+          <div class="bike-list-item"
+               *ngFor="let bike of myBikes"
+               (click)="selectBike(bike)"
+               [class.selected]="bike.id === selectedBike?.id">
+
             <img [src]="bike.imageUrl" [alt]="bike.model" class="bike-list-image">
+
             <div class="bike-list-info">
               <h4>{{ bike.model }}</h4>
-              <p>{{ bike.type }} - S/ {{ bike.costPerMinute }}/min</p>
+              <p>{{ bike.type }} - {{ bike.costPerMinute | currency:'PEN':'symbol':'1.2-2' }}/min</p>
             </div>
+
             <button mat-icon-button class="edit-button" (click)="showEditForm(bike); $event.stopPropagation()">
               <mat-icon>edit</mat-icon>
             </button>

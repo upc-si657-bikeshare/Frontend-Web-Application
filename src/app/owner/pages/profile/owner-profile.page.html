@@ -43,13 +43,12 @@
     <form [formGroup]="payoutInfoForm">
       <mat-tab-group animationDuration="0ms">
         <mat-tab [label]="'OwnerProfile.PayPal' | translate">
-          <div class="tab-content"><mat-form-field appearance="outline" class="payout-field"><mat-label>{{ 'OwnerProfile.PayoutEmail' | translate }}</mat-label><input matInput type="email" formControlName="paypalEmail"></mat-form-field></div>
-        </mat-tab>
-        <mat-tab [label]="'OwnerProfile.Bank' | translate">
-          <div class="tab-content"><mat-form-field appearance="outline" class="payout-field"><mat-label>{{ 'OwnerProfile.BankAccount' | translate }}</mat-label><input matInput formControlName="bankAccountNumber"></mat-form-field></div>
-        </mat-tab>
-        <mat-tab [label]="'OwnerProfile.Yape' | translate">
-          <div class="tab-content"><mat-form-field appearance="outline" class="payout-field"><mat-label>{{ 'OwnerProfile.YapeNumber' | translate }}</mat-label><input matInput formControlName="yapePhoneNumber"></mat-form-field></div>
+          <div class="tab-content">
+            <mat-form-field appearance="outline" class="payout-field">
+              <mat-label>{{ 'OwnerProfile.PayoutEmail' | translate }}</mat-label>
+              <input matInput type="email" formControlName="payoutEmail">
+            </mat-form-field>
+          </div>
         </mat-tab>
       </mat-tab-group>
       <button *ngIf="payoutInfoEditMode" mat-stroked-button (click)="cancelEdit(payoutInfoForm, 'payout')" class="cancel-button payout-cancel-btn">{{ 'Profile.Cancel' | translate }}</button>

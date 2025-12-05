@@ -23,13 +23,16 @@
   </div>
 
   <div class="message-history">
-    <h4>{{ 'Support.Mesagge' | translate }}:</h4>
-    <p>
-      Este es un texto de ejemplo que simula el mensaje detallado del ticket de soporte. En una aplicación real, aquí se mostraría la conversación completa entre el usuario y el equipo de soporte.
+    <h4>{{ 'Support.Message' | translate }}:</h4>
+
+    <p class="ticket-message">
+      {{ data.mensaje || ('Support.NoDescription' | translate) }}
     </p>
   </div>
 </mat-dialog-content>
 
 <mat-dialog-actions align="end">
-  <button mat-flat-button color="primary" mat-dialog-close>Cerrar</button>
+  <button mat-flat-button color="primary" mat-dialog-close>
+    {{ 'Support.Close' | translate }}
+  </button>
 </mat-dialog-actions>

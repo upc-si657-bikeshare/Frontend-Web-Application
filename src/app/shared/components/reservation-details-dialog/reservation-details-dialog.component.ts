@@ -36,7 +36,6 @@ import { TranslateModule } from '@ngx-translate/core';
       <button mat-flat-button color="primary" mat-dialog-close>{{ 'Actions.Close' | translate }}</button>
     </mat-dialog-actions>
   `,
-  // ESTILOS MEJORADOS
   styles: [`
     :host {
       --text-primary: #1E293B;

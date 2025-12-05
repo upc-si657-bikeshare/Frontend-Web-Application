@@ -188,6 +188,11 @@
   "Support.CategoryAccount": "Inquiries about my Account",
   "Support.CategorySuggestions": "Suggestions for the Platform",
   "Support.CategoryOther": "Other",
+  "Support.Close": "Close",
+  "Support.Message": "Message",
+  "Support.StatusOpen": "Pending",
+  "Support.StatusClosed": "Closed",
+
   "Support.LoadingDetails": "(Simulation) Loading details for ticket {{ticketId}}...",
   "OwnerProfile.PayoutInfo": "Payout Information",
   "OwnerProfile.PaymentMethod": "Payment Method",

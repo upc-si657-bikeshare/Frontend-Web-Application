@@ -7,6 +7,7 @@ import * as L from 'leaflet';
 
 import { BikeFormComponent } from '../../components/bike-form/bike-form.component';
 import { Bike } from '../../model/bike.entity';
+import { catalogService } from '../../../../api/catalogService';
 
 @Component({
   selector: 'app-my-bikes-page',
@@ -19,7 +20,7 @@ export class MyBikesPage implements OnInit, OnDestroy {
   @ViewChild('mapContainer') set mapContainer(container: ElementRef | undefined) {
     if (container) {
       this._mapContainer = container;
-      this.initMap();
+      setTimeout(() => this.initMap(), 0);
     }
   }
   private _mapContainer!: ElementRef;
@@ -30,6 +31,7 @@ export class MyBikesPage implements OnInit, OnDestroy {
   myBikes: Bike[] = [];
   selectedBike: Bike | null = null;
   isEditing = false;
+  currentUserId: number = 0;
 
   private bikeIcon = L.icon({
     iconUrl: 'assets/img/map-marker.svg',
@@ -41,28 +43,41 @@ export class MyBikesPage implements OnInit, OnDestroy {
   constructor(private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
-    this.loadOwnerBikes();
+    const userIdStr = localStorage.getItem('userId');
+    if (userIdStr) {
+      this.currentUserId = parseInt(userIdStr, 10);
+      this.loadOwnerBikes();
+    } else {
+      console.error('No se encontró userId. Usuario no logueado.');
+    }
   }
+
   ngOnDestroy(): void {
     this.map?.remove();
   }
-
-  loadOwnerBikes(): void {
-    this.myBikes = [
-      new Bike({ id: 101, model: 'BMX Pro', type: 'BMX', costPerMinute: 0.5, imageUrl: 'https://cdn.skatepro.com/product/520/mankind-thunder-20-bmx-freestyle-bike-8h.webp', lat: -12.085, lng: -77.050 }),
-      new Bike({ id: 102, model: 'Vintage Verde', type: 'Urbana', costPerMinute: 0.3, imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRdDydP4N9WKFYaT6cZoxxGCw5kL2BVGseLww&s', lat: -12.095, lng: -77.045 }),
-      new Bike({ id: 103, model: 'Mountain X', type: 'Montañera', costPerMinute: 0.6, imageUrl: 'https://images.squarespace-cdn.com/content/v1/5c38c1a931d4dfa4282305a3/1547225184651-S2PO613H621C4G57EX7D/specialized-pitch-sport-womens-hardtail-mountain-bike-2019-gloss-storm-grey-acid-lava.jpg', lat: -12.090, lng: -77.060 }),
-    ];
+  async loadOwnerBikes() {
+    try {
+      const data = await catalogService.getAllBikes({ ownerId: this.currentUserId });
+      this.myBikes = data.map((b: any) => new Bike(b));
+      if (this.map) {
+        this.updateMarkers();
+      }
+    } catch (error) {
+      console.error('Error cargando bicicletas:', error);
+    }
   }
+
   initMap(): void {
-    this.map?.remove();
+    if (this.map) this.map.remove();
     if (!this._mapContainer) return;
 
     this.map = L.map(this._mapContainer.nativeElement).setView([-12.09, -77.05], 13);
+
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(this.map);
+
     this.markersLayer.addTo(this.map);
     this.updateMarkers();
   }
@@ -70,15 +85,19 @@ export class MyBikesPage implements OnInit, OnDestroy {
   updateMarkers(): void {
     this.markersLayer.clearLayers();
     this.myBikes.forEach(bike => {
-      L.marker([bike.lat, bike.lng], { icon: this.bikeIcon })
-        .addTo(this.markersLayer)
-        .bindPopup(`<b>${bike.model}</b><br>${bike.type}`);
+      if (bike.lat && bike.lng) {
+        L.marker([bike.lat, bike.lng], { icon: this.bikeIcon })
+          .addTo(this.markersLayer)
+          .bindPopup(`<b>${bike.model}</b><br>${bike.type}`);
+      }
     });
   }
 
   selectBike(bike: Bike): void {
     this.selectedBike = bike;
-    this.map.flyTo([bike.lat, bike.lng], 16);
+    if (this.map && bike.lat && bike.lng) {
+      this.map.flyTo([bike.lat, bike.lng], 16);
+    }
   }
 
   showAddForm(): void {
@@ -90,18 +109,43 @@ export class MyBikesPage implements OnInit, OnDestroy {
     this.selectedBike = bike;
     this.isEditing = true;
   }
+  async handleFormSubmit(formData: any) {
+    try {
+      if (this.selectedBike) {
+        const updatePayload = {
+          model: formData.model,
+          type: formData.type,
+          costPerMinute: formData.costPerMinute,
+          imageUrl: formData.imageUrl,
+          latitude: formData.lat,
+          longitude: formData.lng,
+          status: 'AVAILABLE'
+        };
 
-  handleFormSubmit(bikeData: Bike): void {
-    if (this.selectedBike) {
-      const index = this.myBikes.findIndex(b => b.id === this.selectedBike!.id);
-      this.myBikes[index] = { ...this.selectedBike, ...bikeData };
-      console.log('Bicicleta actualizada:', this.myBikes[index]);
-    } else {
-      const newBike = new Bike({ ...bikeData, id: Date.now() });
-      this.myBikes.push(newBike);
-      console.log('Nueva bicicleta añadida:', newBike);
+        await catalogService.updateBike(this.selectedBike.id, updatePayload);
+        console.log('Bicicleta actualizada exitosamente');
+
+      } else {
+        const createPayload = {
+          ownerId: this.currentUserId,
+          model: formData.model,
+          type: formData.type,
+          costPerMinute: formData.costPerMinute,
+          imageUrl: formData.imageUrl,
+          latitude: formData.lat,
+          longitude: formData.lng
+        };
+
+        await catalogService.createBike(createPayload);
+        console.log('Nueva bicicleta creada exitosamente');
+      }
+      this.isEditing = false;
+      await this.loadOwnerBikes();
+
+    } catch (error) {
+      console.error('Error guardando bicicleta:', error);
+      alert('Hubo un error al guardar la bicicleta. Revisa la consola.');
     }
-    this.isEditing = false;
   }
 
   handleFormCancel(): void {

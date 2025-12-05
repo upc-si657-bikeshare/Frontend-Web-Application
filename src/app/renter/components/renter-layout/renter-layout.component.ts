@@ -19,14 +19,17 @@ import { NotificationService } from '../../../shared/services/notification.servi
 @Component({
   selector: 'app-renter-layout',
   standalone: true,
-  imports: [ CommonModule, RouterOutlet, SidebarComponent, MatSidenavModule, MatToolbarModule, MatIconModule, MatButtonModule, LanguageSwitcherComponent, TranslateModule, MatMenuModule, MatBadgeModule, RouterLink, MatDividerModule ],
+  imports: [
+    CommonModule, RouterOutlet, SidebarComponent, MatSidenavModule, MatToolbarModule,
+    MatIconModule, MatButtonModule, LanguageSwitcherComponent, TranslateModule,
+    MatMenuModule, MatBadgeModule, RouterLink, MatDividerModule
+  ],
   templateUrl: './renter-layout.component.html',
   styleUrls: ['./renter-layout.component.css']
 })
 export class RenterLayoutComponent implements OnInit {
   pageTitle = '';
 
-  // --- CORRECCIÓN: Se restaura el contenido del array del menú ---
   renterMenuItems: MenuItem[] = [
     { label: 'Sidebar.Home',    icon: 'home',    link: '/renter/home' },
     { label: 'Sidebar.Map',     icon: 'map',     link: '/renter/map' },
@@ -50,17 +53,28 @@ export class RenterLayoutComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    const userId = localStorage.getItem('userId');
-    if (userId) {
-      if (!this.currentUserService.getCurrentUserSnapshot()) {
-        this.currentUserService.loadUser(userId).subscribe(() => {
-          this.loadNotificationsFromStorage(userId);
-        });
-      } else {
-        this.loadNotificationsFromStorage(userId);
-      }
-    }
+    this.restoreUserSession();
     this.updateTitleOnRouteChange();
+  }
+  private restoreUserSession(): void {
+
+    if (this.currentUserService.getCurrentUserSnapshot()) return;
+
+    const userIdStr = localStorage.getItem('userId');
+    if (userIdStr) {
+      const userId = parseInt(userIdStr, 10);
+
+      this.currentUserService.loadUser(userId).subscribe({
+        next: () => {
+          this.loadNotificationsFromStorage(userIdStr);
+        },
+        error: () => {
+          this.onLogout();
+        }
+      });
+    } else {
+      this.router.navigate(['/login']);
+    }
   }
 
   private loadNotificationsFromStorage(userId: string): void {
@@ -69,7 +83,6 @@ export class RenterLayoutComponent implements OnInit {
     if (storedNotifications) {
       const notifications = JSON.parse(storedNotifications);
       this.notificationService.setNotifications(notifications);
-      localStorage.removeItem(storageKey);
     }
   }
 
@@ -80,6 +93,9 @@ export class RenterLayoutComponent implements OnInit {
   onLogout(): void {
     this.notificationService.clearNotifications();
     localStorage.removeItem('userId');
+    localStorage.removeItem('token');
+    localStorage.removeItem('userRole');
+
     this.router.navigateByUrl('/login');
   }
 

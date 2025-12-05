@@ -123,3 +123,31 @@
 button[mat-flat-button] {
   border-radius: 20px;
 }
+/* Colores para los estados */
+.status-chip {
+  padding: 4px 12px;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: inline-block;
+}
+
+.status-open {
+  background-color: #e3f2fd;
+  color: #1976d2; /* Azul */
+}
+
+.status-in-progress {
+  background-color: #fff3e0;
+  color: #f57c00; /* Naranja */
+}
+
+.status-resolved {
+  background-color: #e8f5e9;
+  color: #388e3c; /* Verde */
+}
+
+.status-closed {
+  background-color: #f5f5f5;
+  color: #616161; /* Gris */
+}

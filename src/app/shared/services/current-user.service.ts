@@ -1,14 +1,15 @@
-import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable, tap } from 'rxjs';
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, from } from 'rxjs';
+import { map, tap } from 'rxjs/operators';
+import { identityService } from '../../../api/identityService';
+
 export interface CurrentUser {
-  id: string;
+  id: number;
   fullName: string;
   avatar: string;
   phone: string;
   publicBio: string;
-  password?: string;
-  email?: string;
+  email: string;
   address?: string;
 }
 
@@ -16,16 +17,24 @@ export interface CurrentUser {
   providedIn: 'root'
 })
 export class CurrentUserService {
-  private http = inject(HttpClient);
-  private apiUrl = 'https://6824eacb0f0188d7e72b5f57.mockapi.io/api/v1/users2';
 
   private userSource = new BehaviorSubject<CurrentUser | null>(null);
   currentUser$ = this.userSource.asObservable();
-
   constructor() { }
 
-  loadUser(userId: string): Observable<CurrentUser> {
-    return this.http.get<CurrentUser>(`${this.apiUrl}/${userId}`).pipe(
+  loadUser(userId: number): Observable<CurrentUser> {
+    return from(identityService.getProfile(userId)).pipe(
+      map(profile => {
+        return {
+          id: profile.id,
+          fullName: profile.fullName,
+          avatar: profile.avatarUrl,
+          phone: profile.phone,
+          publicBio: profile.publicBio,
+          email: profile.email,
+          address: profile.address
+        } as CurrentUser;
+      }),
       tap(user => this.userSource.next(user))
     );
   }
@@ -40,5 +49,9 @@ export class CurrentUserService {
 
   getCurrentUserSnapshot(): CurrentUser | null {
     return this.userSource.getValue();
+  }
+
+  clearUser(): void {
+    this.userSource.next(null);
   }
 }

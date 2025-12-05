@@ -3,40 +3,48 @@ import { CommonModule, CurrencyPipe, DatePipe } from '@angular/common';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
-import { of } from 'rxjs';
-import { delay } from 'rxjs/operators';
 import { MatIconModule } from '@angular/material/icon';
 
 import { CurrentUserService } from '../../../shared/services/current-user.service';
 import { ReservationDialogComponent, ReservationDialogData } from '../../../shared/components/reservation-dialog/reservation-dialog.component';
 import { ReservationDetailsDialogComponent } from '../../../shared/components/reservation-details-dialog/reservation-details-dialog.component';
 import { CancelConfirmationDialogComponent } from '../../../shared/components/cancel-confirmation-dialog/cancel-confirmation-dialog.component';
+
+import { bookingService } from '../../../../api/bookingService';
+import { catalogService } from '../../../../api/catalogService';
+import { identityService } from '../../../../api/identityService';
+
 interface RenterStats {
   distanceTraveled: number;
   rentalsCount: number;
   drivingTime: number;
   rating: number;
 }
+
 interface UpcomingReservation {
-  id: string;
+  id: number;
   bikeName: string;
   date: string;
   address: string;
   bikeImage: string;
   ownerName: string;
+  totalPrice?: number;
 }
+
 interface RentalHistory {
   bikeName: string;
   date: string;
-  status: 'Finalizado' | 'Cancelada' | 'Activa';
+  status: string;
   location: string;
 }
+
 interface Recommendation {
-  id: string;
+  id: number;
   bikeName: string;
   pricePerMinute: number;
   distance: string;
   imageUrl: string;
+  ownerName?: string;
 }
 
 @Component({
@@ -59,38 +67,104 @@ export class RenterHomePage implements OnInit {
   private currentUserService = inject(CurrentUserService);
   private dialog = inject(MatDialog);
   private snackBar = inject(MatSnackBar);
+
   username = '';
   stats: RenterStats | null = null;
   upcomingReservation: UpcomingReservation | null = null;
   recentRentals: RentalHistory[] = [];
   recommendations: Recommendation[] = [];
-  private mockUpcomingReservations: UpcomingReservation[] = [
-    { id: 'res-001', bikeName: 'Bicicleta de Montaña Specialized', date: '2025-06-18T17:00:00.000Z', address: 'Parque Kennedy, Miraflores', bikeImage: 'https://www.monark.com.pe/static/monark-pe/uploads/products/images/bicicleta-monark-highlander-xt-aro-29-rojo-negro-01.jpg', ownerName: 'Ana' }
-  ];
+
+  loading = true;
 
   ngOnInit(): void {
     this.currentUserService.currentUser$.subscribe(user => {
       if (user) this.username = user.fullName.split(' ')[0];
     });
-    this.loadDashboardData();
+    this.loadRealDashboardData();
   }
 
-  loadDashboardData(): void {
-    of({}).pipe(delay(200)).subscribe(() => {
-      this.stats = { distanceTraveled: 54, rentalsCount: 8, drivingTime: 17, rating: 4.8 };
-      this.upcomingReservation = this.mockUpcomingReservations.length > 0 ? this.mockUpcomingReservations[0] : null;
+  async loadRealDashboardData() {
+    this.loading = true;
+    const userIdStr = localStorage.getItem('userId');
+    if (!userIdStr) return;
+    const userId = parseInt(userIdStr, 10);
 
-      this.recentRentals = [
-        { bikeName: 'Vintage',  date: '15 junio', status: 'Finalizado', location: 'Plaza San Miguel' },
-        { bikeName: 'Mountain', date: '11 junio', status: 'Finalizado', location: 'El Malecón' },
-        { bikeName: 'BMX',      date: '05 junio', status: 'Cancelada',  location: 'Av. La Marina' },
-      ];
-      this.recommendations = [
-        { id: 'bike-001', bikeName: 'Vintage verde', pricePerMinute: 0.5, distance: '400 m', imageUrl: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRdDydP4N9WKFYaT6cZoxxGCw5kL2BVGseLww&s' },
-        { id: 'bike-002', bikeName: 'Vintage rojo', pricePerMinute: 0.6, distance: '600 m', imageUrl: 'https://i.ebayimg.com/images/g/5O4AAOSw~-dlNVKg/s-l1600.jpg' },
-        { id: 'bike-003', bikeName: 'City Cruiser', pricePerMinute: 0.4, distance: '200 m', imageUrl: 'https://bicicletamontana.com/wp-content/uploads/2020/09/bicicleta-de-paseo.jpg' }
-      ];
-    });
+    try {
+      const allReservations: any[] = await bookingService.getReservations({ renterId: userId });
+      const upcomingRaw = allReservations
+        .filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED')
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+      const historyRaw = allReservations
+        .filter(r => r.status === 'COMPLETED' || r.status === 'CANCELLED' || r.status === 'DECLINED')
+        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+      if (upcomingRaw.length > 0) {
+        const nextRes = upcomingRaw[0];
+        this.upcomingReservation = await this.enrichReservation(nextRes);
+      } else {
+        this.upcomingReservation = null;
+      }
+      this.recentRentals = await Promise.all(historyRaw.slice(0, 3).map(async (res) => {
+        let bikeName = 'Bicicleta';
+        try {
+          const bike = await catalogService.getBikeById(res.bikeId);
+          bikeName = bike.model;
+        } catch (e) {}
+
+        return {
+          bikeName: bikeName,
+          date: res.startDate,
+          status: res.status,
+          location: 'Lima, Perú'
+        };
+      }));
+
+      const availableBikes: any[] = await catalogService.getAllBikes({ status: 'AVAILABLE' });
+      this.recommendations = availableBikes.slice(0, 3).map(bike => ({
+        id: bike.id,
+        bikeName: bike.model,
+        pricePerMinute: bike.costPerMinute,
+        distance: 'Cerca de ti',
+        imageUrl: bike.imageUrl || 'assets/img/bike-placeholder.jpg'
+      }));
+
+      this.stats = {
+        distanceTraveled: historyRaw.length * 5,
+        rentalsCount: historyRaw.filter(r => r.status === 'COMPLETED').length,
+        drivingTime: historyRaw.length * 45,
+        rating: 4.9
+      };
+
+    } catch (error) {
+      console.error('Error cargando dashboard:', error);
+    } finally {
+      this.loading = false;
+    }
+  }
+  private async enrichReservation(res: any): Promise<UpcomingReservation> {
+    let bikeName = 'Cargando...';
+    let bikeImage = '';
+    let ownerName = 'Propietario';
+
+    try {
+      const bike = await catalogService.getBikeById(res.bikeId);
+      bikeName = bike.model;
+      bikeImage = bike.imageUrl;
+      const ownerProfile = await identityService.getProfile(bike.ownerId);
+      ownerName = ownerProfile.fullName;
+    } catch (e) {
+      console.warn('Error enriqueciendo reserva', e);
+    }
+
+    return {
+      id: res.id,
+      bikeName: bikeName,
+      date: res.startDate,
+      address: 'Ver ubicación en mapa',
+      bikeImage: bikeImage,
+      ownerName: ownerName,
+      totalPrice: res.totalPrice
+    };
   }
 
   viewDetails(reservation: UpcomingReservation): void {
@@ -103,48 +177,69 @@ export class RenterHomePage implements OnInit {
   cancelReservation(reservation: UpcomingReservation): void {
     const dialogRef = this.dialog.open(CancelConfirmationDialogComponent, { width: '450px' });
 
-    dialogRef.afterClosed().subscribe(confirmed => {
+    dialogRef.afterClosed().subscribe(async (confirmed) => {
       if (confirmed) {
-        this.mockUpcomingReservations = this.mockUpcomingReservations.filter(r => r.id !== reservation.id);
-        this.upcomingReservation = null;
-        this.snackBar.open('Reserva cancelada exitosamente', 'Cerrar', { duration: 3000 });
+        try {
+          await bookingService.updateStatus(reservation.id, 'CANCELLED');
+
+          this.snackBar.open(this.translate.instant('Reservations.StatusCancelled'), 'OK', { duration: 3000 });
+          this.loadRealDashboardData();
+        } catch (error) {
+          console.error('Error cancelando:', error);
+          this.snackBar.open('Error al cancelar reserva', 'Cerrar');
+        }
       }
     });
   }
-
   reserveBike(rec: Recommendation): void {
     const dialogData: ReservationDialogData = {
       bikeName: rec.bikeName,
       pricePerMinute: rec.pricePerMinute,
       imageUrl: rec.imageUrl
     };
+
     const dialogRef = this.dialog.open(ReservationDialogComponent, {
       width: '450px',
       data: dialogData,
       disableClose: true
     });
 
-    dialogRef.afterClosed().subscribe(confirmed => {
+    dialogRef.afterClosed().subscribe(async (confirmed) => {
       if (confirmed) {
-        const newReservation: UpcomingReservation = {
-          id: `res-${Date.now()}`,
-          bikeName: rec.bikeName,
-          date: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-          address: 'Ubicación de la bicicleta',
-          bikeImage: rec.imageUrl,
-          ownerName: 'Propietario de Bici'
-        };
-        this.mockUpcomingReservations.push(newReservation);
-        this.loadDashboardData();
-        this.snackBar.open(`¡Has reservado la ${rec.bikeName} exitosamente!`, 'OK', { duration: 3000 });
+        const userIdStr = localStorage.getItem('userId');
+        if (!userIdStr) return;
+
+        try {
+          const now = new Date();
+          const endDate = new Date(now.getTime() + 60 * 60 * 1000);
+
+          const payload = {
+            renterId: parseInt(userIdStr, 10),
+            bikeId: rec.id,
+            startDate: now.toISOString(),
+            endDate: endDate.toISOString()
+          };
+
+          await bookingService.createReservation(payload);
+
+          this.snackBar.open(this.translate.instant('RenterHome.ReservationSuccess'), 'OK', { duration: 3000 });
+          this.loadRealDashboardData();
+
+        } catch (error) {
+          console.error('Error reservando:', error);
+          this.snackBar.open('Error al crear reserva', 'Cerrar');
+        }
       }
     });
   }
 
   translateStatus(status: string): string {
-    if (status === 'Finalizado') return this.translate.instant('RenterHome.StatusFinalizado');
-    if (status === 'Cancelada') return this.translate.instant('RenterHome.StatusCancelada');
-    if (status === 'Activa') return this.translate.instant('RenterHome.StatusActiva');
-    return status;
+    switch (status) {
+      case 'COMPLETED': return this.translate.instant('RenterHome.StatusFinalizado') || 'Finalizado';
+      case 'CANCELLED': return this.translate.instant('RenterHome.StatusCancelada') || 'Cancelada';
+      case 'ACCEPTED': return this.translate.instant('RenterHome.StatusActiva') || 'Aceptada';
+      case 'PENDING': return this.translate.instant('Reservations.StatusPending') || 'Pendiente';
+      default: return status;
+    }
   }
 }
