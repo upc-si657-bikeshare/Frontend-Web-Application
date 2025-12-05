@@ -1,22 +1,27 @@
-import { Component, Inject } from '@angular/core';
+import { Component, Inject, inject } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
-import { MatDialogModule, MAT_DIALOG_DATA } from '@angular/material/dialog';
+import { MatDialogModule, MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatDividerModule } from '@angular/material/divider';
-import { TranslateModule } from '@ngx-translate/core';
+import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { TranslateModule, TranslateService } from '@ngx-translate/core';
+import { bookingService } from '../../../../api/bookingService';
 
 @Component({
   selector: 'app-reservation-details-dialog',
   standalone: true,
-  imports: [ CommonModule, DatePipe, MatDialogModule, MatButtonModule, MatIconModule, MatDividerModule, TranslateModule ],
+  imports: [ CommonModule, DatePipe, MatDialogModule, MatButtonModule, MatIconModule, MatDividerModule, TranslateModule, MatSnackBarModule ],
   template: `
     <h2 mat-dialog-title>{{ 'RenterHome.ReservationDetails' | translate }}</h2>
     <mat-dialog-content>
       <div class="details-content">
-        <img [src]="data.bikeImage" [alt]="data.bikeName" class="bike-image-large">
+        <img [src]="data.bikeImage" [alt]="data.bikeName" class="bike-image-large" onerror="this.src='assets/img/bike-placeholder.jpg'">
         <h3>{{ data.bikeName }}</h3>
+        <span class="status-badge" [ngClass]="data.status">{{ data.status }}</span>
+
         <mat-divider></mat-divider>
+
         <div class="info-grid">
           <mat-icon>person_outline</mat-icon>
           <p><strong>{{ 'RenterHome.Owner' | translate }}:</strong> {{ data.ownerName }}</p>
@@ -29,11 +34,22 @@ import { TranslateModule } from '@ngx-translate/core';
 
           <mat-icon>location_on</mat-icon>
           <p><strong>{{ 'Details.Location' | translate }}:</strong> {{ data.address }}</p>
+
+          <mat-icon>attach_money</mat-icon>
+          <p><strong>Total:</strong> S/ {{ data.totalPrice | number:'1.2-2' }}</p>
         </div>
       </div>
     </mat-dialog-content>
+
     <mat-dialog-actions align="end">
-      <button mat-flat-button color="primary" mat-dialog-close>{{ 'Actions.Close' | translate }}</button>
+      <button mat-stroked-button mat-dialog-close>{{ 'Actions.Close' | translate }}</button>
+
+      <button *ngIf="data.status === 'ACCEPTED'"
+              mat-flat-button color="primary"
+              (click)="finalizeReservation()">
+        <mat-icon>check_circle</mat-icon>
+        Finalizar Reserva
+      </button>
     </mat-dialog-actions>
   `,
   styles: [`
@@ -51,7 +67,7 @@ import { TranslateModule } from '@ngx-translate/core';
     }
     .bike-image-large {
       width: 100%;
-      height: 220px;
+      height: 200px;
       object-fit: cover;
       border-radius: 8px;
       margin-bottom: 1rem;
@@ -60,9 +76,21 @@ import { TranslateModule } from '@ngx-translate/core';
     .details-content h3 {
       font-size: 1.5rem;
       font-weight: 600;
-      margin: 0.5rem 0 1rem 0;
+      margin: 0.5rem 0 0.5rem 0;
       color: var(--text-primary);
     }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+      background: #eee;
+    }
+    .status-badge.ACCEPTED { background: #dcfce7; color: #166534; } /* Verde */
+    .status-badge.PENDING { background: #fef9c3; color: #854d0e; } /* Amarillo */
+
     .info-grid {
       display: grid;
       grid-template-columns: auto 1fr;
@@ -70,22 +98,31 @@ import { TranslateModule } from '@ngx-translate/core';
       gap: 1rem 1.5rem;
       margin-top: 1.5rem;
     }
-    .info-grid mat-icon {
-      color: var(--text-secondary);
-    }
-    .info-grid p {
-      margin: 0;
-      color: var(--text-secondary);
-    }
-    .info-grid p strong {
-      color: var(--text-primary);
-      font-weight: 500;
-    }
-    mat-dialog-actions {
-      padding-top: 1rem;
-    }
+    .info-grid mat-icon { color: var(--text-secondary); }
+    .info-grid p { margin: 0; color: var(--text-secondary); }
+    .info-grid p strong { color: var(--text-primary); font-weight: 500; }
+    mat-dialog-actions { padding-top: 1rem; gap: 8px; }
   `]
 })
 export class ReservationDetailsDialogComponent {
-  constructor(@Inject(MAT_DIALOG_DATA) public data: any) {}
+  private snackBar = inject(MatSnackBar);
+
+  constructor(
+    @Inject(MAT_DIALOG_DATA) public data: any,
+    public dialogRef: MatDialogRef<ReservationDetailsDialogComponent>
+  ) {}
+
+  async finalizeReservation() {
+    if (!confirm('¿Estás seguro de que deseas finalizar el viaje?')) return;
+
+    try {
+      await bookingService.updateStatus(this.data.id, 'COMPLETED');
+
+      this.snackBar.open('¡Viaje finalizado con éxito!', 'OK', { duration: 3000 });
+      this.dialogRef.close(true);
+    } catch (error) {
+      console.error('Error finalizando:', error);
+      this.snackBar.open('Error al finalizar el viaje', 'Cerrar');
+    }
+  }
 }

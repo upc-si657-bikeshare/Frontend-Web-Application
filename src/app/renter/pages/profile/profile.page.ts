@@ -11,15 +11,25 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { TranslateModule, TranslateService } from '@ngx-translate/core';
+
 import { CurrentUser, CurrentUserService } from '../../../shared/services/current-user.service';
 import { ReviewsDialogComponent } from '../../../shared/components/reviews-dialog/reviews-dialog.component';
 import { ChangePasswordDialogComponent } from '../../../shared/components/change-password-dialog/change-password-dialog.component';
+import { CreateReviewDialogComponent, ReviewableItem } from '../../../shared/components/create-review-dialog/create-review-dialog.component';
+
 import { identityService } from '../../../../api/identityService';
+import { reviewService } from '../../../../api/reviewService';
+import { bookingService } from '../../../../api/bookingService';
+import { catalogService } from '../../../../api/catalogService';
 
 @Component({
   selector: 'app-profile-page',
   standalone: true,
-  imports: [ CommonModule, ReactiveFormsModule, FormsModule, MatCardModule, MatIconModule, MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule, MatSlideToggleModule, MatSnackBarModule, TranslateModule, MatDialogModule ],
+  imports: [
+    CommonModule, ReactiveFormsModule, FormsModule, MatCardModule, MatIconModule,
+    MatButtonModule, MatFormFieldModule, MatInputModule, MatSelectModule,
+    MatSlideToggleModule, MatSnackBarModule, TranslateModule, MatDialogModule
+  ],
   templateUrl: './profile.page.html',
   styleUrls: ['./profile.page.css']
 })
@@ -31,34 +41,24 @@ export class ProfilePage implements OnInit {
   private currentUserService = inject(CurrentUserService);
 
   userData: CurrentUser | null = null;
-  renterProfileData: any = {};
-
   personalInfoForm: FormGroup;
-  preferencesForm: FormGroup;
-
   personalInfoEditMode = false;
-  passwordVisible = false;
-  currentPasswordMock = '••••••••';
 
-  paymentMethods = ['Profile.Payment.Yape', 'Profile.Payment.Paypal', 'Profile.Payment.Debit', 'Profile.Payment.Credit'];
-  bikeTypes = ['Profile.BikeType.Any', 'Profile.BikeType.Vintage', 'Profile.BikeType.BMX', 'Profile.BikeType.Sport', 'Profile.BikeType.Mountain'];
+  passwordVisible = false;
+  currentPasswordVisual = 'Password123!';
 
   reviewsMade: any[] = [];
   stars = Array(5).fill(0);
 
+  reviewableItems: ReviewableItem[] = [];
+
   constructor() {
     this.personalInfoForm = this.fb.group({
       name: ['', [Validators.required, Validators.minLength(3)]],
-      email: ['', [Validators.required, Validators.email]],
+      email: [{ value: '', disabled: true }, [Validators.required, Validators.email]],
       phone: [''],
       address: ['', Validators.required],
       avatar: ['']
-    });
-
-    this.preferencesForm = this.fb.group({
-      paymentMethod: [''],
-      preferredBikeType: [''],
-      notifications: [true]
     });
   }
 
@@ -74,7 +74,7 @@ export class ProfilePage implements OnInit {
 
     try {
       const profile = await identityService.getProfile(userId);
-      this.renterProfileData = profile;
+
       this.personalInfoForm.patchValue({
         name: profile.fullName,
         email: profile.email,
@@ -83,11 +83,6 @@ export class ProfilePage implements OnInit {
         avatar: profile.avatarUrl
       });
 
-      this.preferencesForm.patchValue({
-        paymentMethod: profile.paymentMethod || 'Profile.Payment.Paypal',
-        preferredBikeType: profile.preferredBikeType || 'Profile.BikeType.Any',
-        notifications: profile.notificationsEnabled !== undefined ? profile.notificationsEnabled : true
-      });
       this.currentUserService.updateCurrentUser({
         id: profile.id,
         fullName: profile.fullName,
@@ -100,19 +95,68 @@ export class ProfilePage implements OnInit {
 
       this.currentUserService.currentUser$.subscribe(user => this.userData = user);
 
+      const reviewsData: any[] = await reviewService.getReviews({ renterId: userId });
+
+      this.reviewsMade = await Promise.all(reviewsData.map(async (review) => {
+        let ownerName = 'Propietario';
+        let ownerImage = 'assets/img/default-avatar.png';
+        let bikeModel = 'Bicicleta';
+
+        try {
+          const ownerProfile = await identityService.getProfile(review.ownerId);
+          ownerName = ownerProfile.fullName;
+          ownerImage = ownerProfile.avatarUrl || ownerImage;
+        } catch (e) {}
+
+        return {
+          ownerName: ownerName,
+          ownerImage: ownerImage,
+          bikeModel: bikeModel,
+          rating: review.rating,
+          comment: review.comment,
+          date: new Date(review.createdAt).toLocaleDateString()
+        };
+      }));
+
+      await this.loadItemsToReview(userId);
+
     } catch (error) {
       console.error('Error cargando perfil:', error);
       this.snackBar.open(this.translate.instant('Profile.ErrorLoad'), 'OK', { duration: 3000 });
     }
 
-    this.reviewsMade = [
-      { ownerName: 'Ana', bikeModel: 'BMX Pro', rating: 5, comment: 'La bici de Ana es increíble, muy buen estado.', date: 'Hace 1 semana', ownerImage: 'https://randomuser.me/api/portraits/women/44.jpg' },
-      { ownerName: 'Luis', bikeModel: 'Vintage Verde', rating: 4, comment: 'Todo bien con el alquiler, proceso fácil.', date: 'Hace 3 semanas', ownerImage: 'https://randomuser.me/api/portraits/men/40.jpg' },
-      { ownerName: 'Carla', bikeModel: 'Mountain X', rating: 4.5, comment: 'Perfecta para el cerro. Carla fue muy amable.', date: 'Hace 1 mes', ownerImage: 'https://randomuser.me/api/portraits/women/50.jpg' }
-    ];
-
     this.personalInfoForm.disable();
-    this.preferencesForm.disable();
+  }
+
+  private async loadItemsToReview(userId: number) {
+    try {
+      const reservations = await bookingService.getReservations({ renterId: userId });
+      const completed = reservations.filter((r: any) => r.status === 'COMPLETED');
+
+      this.reviewableItems = await Promise.all(completed.map(async (res: any) => {
+        let ownerName = 'Propietario';
+        let ownerImage = 'assets/img/default-avatar.png';
+        let bikeModel = 'Bicicleta';
+
+        try {
+          const bike = await catalogService.getBikeById(res.bikeId);
+          bikeModel = bike.model;
+          const owner = await identityService.getProfile(bike.ownerId);
+          ownerName = owner.fullName;
+          ownerImage = owner.avatarUrl || ownerImage;
+        } catch (e) {}
+
+        return {
+          reservationId: res.id,
+          ownerName: ownerName,
+          ownerImage: ownerImage,
+          bikeModel: bikeModel,
+          date: new Date(res.startDate).toLocaleDateString()
+        };
+      }));
+    } catch (e) {
+      console.error('Error cargando items para reseñar', e);
+    }
   }
 
   onChangeProfilePicture(): void {
@@ -130,9 +174,7 @@ export class ProfilePage implements OnInit {
       this.saveAllData();
     } else {
       this.personalInfoForm.enable();
-      this.preferencesForm.enable();
       this.personalInfoForm.get('email')?.disable();
-
       this.personalInfoEditMode = true;
     }
   }
@@ -143,67 +185,91 @@ export class ProfilePage implements OnInit {
   }
 
   private async saveAllData() {
-    if (this.personalInfoForm.invalid || this.preferencesForm.invalid || !this.userData) {
-      this.snackBar.open(this.translate.instant('Profile.ErrorForm'),
-        this.translate.instant('Profile.Close'),
-        { duration: 3000 });
+    if (this.personalInfoForm.invalid || !this.userData) {
+      this.snackBar.open(this.translate.instant('Profile.ErrorForm'), 'Cerrar');
       return;
     }
 
     try {
       const userId = this.userData.id;
       const personalValues = this.personalInfoForm.getRawValue();
-      const preferenceValues = this.preferencesForm.value;
+
       const updatePayload = {
         fullName: personalValues.name,
         phone: personalValues.phone,
         address: personalValues.address,
-        avatarUrl: personalValues.avatar,
-        paymentMethod: preferenceValues.paymentMethod,
-        preferredBikeType: preferenceValues.preferredBikeType,
-        notificationsEnabled: preferenceValues.notifications
+        avatarUrl: personalValues.avatar
       };
-      await identityService.updateRenterProfile(userId, updatePayload);
-      this.snackBar.open(this.translate.instant('Profile.Saved'),
-        this.translate.instant('Profile.OK'),
-        { duration: 2000 });
 
+      await identityService.updateRenterProfile(userId, updatePayload);
+
+      this.snackBar.open(this.translate.instant('Profile.Saved'), 'OK', { duration: 2000 });
       this.personalInfoEditMode = false;
       this.loadInitialData();
 
     } catch (error) {
       console.error('Error guardando perfil:', error);
-      this.snackBar.open(this.translate.instant('Profile.ErrorSave'), 'Cerrar', { duration: 3000 });
+      this.snackBar.open(this.translate.instant('Profile.ErrorSave'), 'Cerrar');
     }
   }
-
   openChangePasswordDialog() {
     const dialogRef = this.dialog.open(ChangePasswordDialogComponent, { width: '400px', disableClose: true });
-    dialogRef.afterClosed().subscribe((result: { newPassword?: string } | undefined) => {
-      if (result && result.newPassword) {
-        this.snackBar.open('Cambio de contraseña no implementado en backend', 'OK', { duration: 3000 });
+
+    dialogRef.afterClosed().subscribe(async (result) => {
+      if (result && result.newPassword && result.currentPassword && this.userData) {
+        try {
+          await identityService.changePassword(this.userData.id, {
+            currentPassword: result.currentPassword,
+            newPassword: result.newPassword
+          });
+
+          this.snackBar.open(this.translate.instant('Password.Success'), 'OK', { duration: 3000 });
+
+        } catch (error) {
+          console.error('Error cambiando contraseña:', error);
+          this.snackBar.open('Error al cambiar contraseña. Verifica tu contraseña actual.', 'Cerrar', { duration: 4000 });
+        }
+      }
+    });
+  }
+
+  openCreateReviewDialog() {
+    if (this.reviewableItems.length === 0) {
+      this.snackBar.open('No tienes alquileres finalizados para reseñar.', 'Cerrar', { duration: 3000 });
+      return;
+    }
+
+    const dialogRef = this.dialog.open(CreateReviewDialogComponent, {
+      width: '500px',
+      data: { reviewableItems: this.reviewableItems }
+    });
+
+    dialogRef.afterClosed().subscribe(async (result) => {
+      if (result) {
+        try {
+          await reviewService.createReview({
+            reservationId: result.reservationId,
+            rating: result.rating,
+            comment: result.comment
+          });
+
+          this.snackBar.open('¡Reseña publicada con éxito!', 'OK', { duration: 3000 });
+          this.loadInitialData();
+
+        } catch (error) {
+          console.error('Error creando reseña:', error);
+          this.snackBar.open('Error al publicar la reseña', 'Cerrar');
+        }
       }
     });
   }
 
   openReviewsDialog() {
-    const dialogData = {
-      title: 'Profile.MyReviews',
-      reviews: this.reviewsMade.map(review => ({
-        reviewerName: review.ownerName,
-        reviewerImage: review.ownerImage,
-        reviewSubject: review.bikeModel,
-        date: review.date,
-        comment: review.comment,
-        rating: review.rating
-      }))
-    };
+    const dialogData = { title: 'Profile.MyReviews', reviews: this.reviewsMade };
     this.dialog.open(ReviewsDialogComponent, { width: '600px', data: dialogData });
   }
 
   getStarType(rating: number, index: number): string {
-    if (rating >= index) return 'star';
-    else if (rating >= index - 0.5) return 'star_half';
-    else return 'star_border';
+    return rating >= index ? 'star' : rating >= index - 0.5 ? 'star_half' : 'star_border';
   }
 }

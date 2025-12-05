@@ -24,5 +24,9 @@ export const identityService = {
   updateOwnerProfile: async (userId: number, data: any) => {
     const response = await api.put(`/api/profiles/owner/${userId}`, data);
     return response.data;
+  },
+  changePassword: async (userId: number, data: any) => {
+    const response = await api.put(`/api/auth/change-password/${userId}`, data);
+    return response.data;
   }
 };

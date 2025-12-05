@@ -7,6 +7,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { TranslateModule } from '@ngx-translate/core';
+
 export const passwordMatchValidator: ValidatorFn = (control: AbstractControl): ValidationErrors | null => {
   const password = control.get('newPassword');
   const confirmPassword = control.get('confirmPassword');
@@ -25,20 +26,29 @@ export class ChangePasswordDialogComponent {
   dialogRef = inject(MatDialogRef<ChangePasswordDialogComponent>);
 
   passwordForm: FormGroup;
+
+  currentPasswordVisible = false;
   newPasswordVisible = false;
   confirmPasswordVisible = false;
 
   constructor() {
     this.passwordForm = this.fb.group({
-      newPassword: ['', [Validators.required, Validators.minLength(8)]],
+      currentPassword: ['', Validators.required],
+      newPassword: ['', [Validators.required, Validators.minLength(6)]],
       confirmPassword: ['', Validators.required]
     }, { validators: passwordMatchValidator });
   }
 
+  checkError(controlName: string, errorName: string): boolean {
+    return this.passwordForm.get(controlName)?.hasError(errorName) || false;
+  }
+
   onSave(): void {
     if (this.passwordForm.valid) {
-      console.log('Nueva contraseña (simulación):', this.passwordForm.value.newPassword);
-      this.dialogRef.close({ newPassword: this.passwordForm.value.newPassword });
+      this.dialogRef.close({
+        currentPassword: this.passwordForm.value.currentPassword,
+        newPassword: this.passwordForm.value.newPassword
+      });
     }
   }
 

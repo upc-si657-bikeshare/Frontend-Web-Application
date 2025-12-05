@@ -2,82 +2,141 @@
 
   <div class="profile-section-card">
     <div class="section-header">
-      <h2>{{ 'Profile.PersonalInfo' | translate }}</h2>
-      <button mat-flat-button color="primary" (click)="toggleEditPersonalInfo()">
+      <div class="header-title">
+        <mat-icon class="header-icon">person</mat-icon>
+        <h2>{{ 'Profile.PersonalInfo' | translate }}</h2>
+      </div>
+      <button mat-stroked-button color="primary" (click)="toggleEditPersonalInfo()">
         <mat-icon>{{ personalInfoEditMode ? 'save' : 'edit' }}</mat-icon>
-        {{ personalInfoEditMode ? ( 'Profile.Save' | translate ) : ( 'Profile.Edit' | translate ) }}
+        {{ (personalInfoEditMode ? 'Profile.Save' : 'Profile.Edit') | translate }}
       </button>
     </div>
+
     <form [formGroup]="personalInfoForm" class="personal-info-content">
-      <div class="profile-picture-container" (click)="onChangeProfilePicture()" [class.editable]="personalInfoEditMode">
-        <img [src]="personalInfoForm.get('avatar')?.value" alt="Foto de Perfil">
-        <span>{{ 'Profile.Photo' | translate }}</span>
+      <div class="profile-picture-wrapper">
+        <div class="profile-picture-container" (click)="onChangeProfilePicture()"
+             [class.editable]="personalInfoEditMode"
+             [class.disabled]="!personalInfoEditMode">
+          <img [src]="personalInfoForm.get('avatar')?.value || 'assets/img/default-avatar.png'"
+               alt="Foto de Perfil"
+               onerror="this.src='assets/img/default-avatar.png'">
+
+          <div *ngIf="personalInfoEditMode" class="edit-overlay">
+            <mat-icon>camera_alt</mat-icon>
+            <span>Cambiar</span>
+          </div>
+        </div>
       </div>
+
       <div class="personal-details">
-        <mat-form-field appearance="outline"><mat-label>{{ 'Profile.Name' | translate }}</mat-label><input matInput formControlName="name"></mat-form-field>
-        <mat-form-field appearance="outline"><mat-label>{{ 'Profile.Email' | translate }}</mat-label><input matInput type="email" formControlName="email"></mat-form-field>
-        <mat-form-field appearance="outline"><mat-label>{{ 'Profile.Phone' | translate }}</mat-label><input matInput formControlName="phone"></mat-form-field>
-        <mat-form-field appearance="outline"><mat-label>{{ 'Profile.Address' | translate }}</mat-label><input matInput formControlName="address"></mat-form-field>
-        <button *ngIf="personalInfoEditMode" mat-stroked-button (click)="cancelEditPersonalInfo()" class="cancel-button">{{ 'Profile.Cancel' | translate }}</button>
+        <div class="form-grid">
+          <mat-form-field appearance="outline">
+            <mat-label>{{ 'Profile.Name' | translate }}</mat-label>
+            <input matInput formControlName="name">
+            <mat-icon matSuffix>badge</mat-icon>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>{{ 'Profile.Email' | translate }}</mat-label>
+            <input matInput type="email" formControlName="email">
+            <mat-icon matSuffix>email</mat-icon>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>{{ 'Profile.Phone' | translate }}</mat-label>
+            <input matInput formControlName="phone">
+            <mat-icon matSuffix>phone</mat-icon>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline">
+            <mat-label>{{ 'Profile.Address' | translate }}</mat-label>
+            <input matInput formControlName="address">
+            <mat-icon matSuffix>location_on</mat-icon>
+          </mat-form-field>
+        </div>
+
+        <div class="form-actions" *ngIf="personalInfoEditMode">
+          <button mat-button color="warn" (click)="cancelEditPersonalInfo()">
+            {{ 'Profile.Cancel' | translate }}
+          </button>
+        </div>
       </div>
     </form>
   </div>
 
-  <div class="profile-section-card" [formGroup]="preferencesForm">
-    <h2>{{ 'Profile.Preferences' | translate }}</h2><br>
-    <div class="preferences-grid">
-      <mat-form-field appearance="outline">
-        <mat-label>{{ 'Profile.PaymentMethods' | translate }}</mat-label>
-        <mat-select formControlName="paymentMethod">
-          <mat-option *ngFor="let method of paymentMethods" [value]="method">{{ method }}</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <mat-form-field appearance="outline">
-        <mat-label>{{ 'Profile.CurrentPassword' | translate }}</mat-label>
-        <input matInput [type]="passwordVisible ? 'text' : 'password'" [value]="currentPasswordMock" readonly>
-        <button mat-icon-button matSuffix (click)="passwordVisible = !passwordVisible" type="button">
-          <mat-icon>{{ passwordVisible ? 'visibility_off' : 'visibility' }}</mat-icon>
+  <div class="profile-section-card">
+    <div class="section-header">
+      <div class="header-title">
+        <mat-icon class="header-icon">security</mat-icon>
+        <h2>{{ 'OwnerProfile.Security' | translate }}</h2>
+      </div>
+    </div>
+
+    <div class="security-content">
+      <div class="security-row">
+        <mat-form-field appearance="outline" class="password-field">
+          <mat-label>{{ 'Profile.CurrentPassword' | translate }}</mat-label>
+          <input matInput
+                 [type]="passwordVisible ? 'text' : 'password'"
+                 [value]="currentPasswordVisual"
+                 readonly>
+        </mat-form-field>
+
+        <button mat-flat-button color="warn" class="change-password-button" (click)="openChangePasswordDialog()">
+          {{ 'Profile.ChangePassword' | translate }}
         </button>
-      </mat-form-field>
-      <mat-form-field appearance="outline">
-        <mat-label>{{ 'Profile.PreferredBike' | translate }}</mat-label>
-        <mat-select formControlName="preferredBikeType">
-          <mat-option *ngFor="let type of bikeTypes" [value]="type">{{ type }}</mat-option>
-        </mat-select>
-      </mat-form-field>
-      <button mat-flat-button color="primary" class="change-password-button" (click)="openChangePasswordDialog()">
-        {{ 'Profile.ChangePassword' | translate }}
-      </button>
-      <div class="notifications-toggle">
-        <label>{{ 'Profile.Notifications' | translate }}</label>
-        <mat-slide-toggle formControlName="notifications"></mat-slide-toggle>
       </div>
     </div>
   </div>
 
   <div class="profile-section-card">
-    <h2>{{ 'Profile.MyReviews' | translate }}</h2>
-    <div class="reviews-container">
+    <div class="section-header">
+      <div class="header-title">
+        <mat-icon class="header-icon">reviews</mat-icon>
+        <h2>{{ 'Profile.MyReviews' | translate }}</h2>
+      </div>
+
+      <button mat-flat-button color="accent" (click)="openCreateReviewDialog()">
+        <mat-icon>rate_review</mat-icon>
+        Escribir Reseña
+      </button>
+    </div>
+
+    <div *ngIf="reviewsMade.length === 0" class="no-reviews">
+      <mat-icon>rate_review</mat-icon>
+      <p>Aún no has hecho reseñas. ¡Comparte tu experiencia!</p>
+    </div>
+
+    <div class="reviews-container" *ngIf="reviewsMade.length > 0">
       <mat-card class="review-card" *ngFor="let review of reviewsMade.slice(0, 2)">
         <mat-card-header>
-          <img mat-card-avatar [src]="review.ownerImage" [alt]="review.ownerName">
+          <img mat-card-avatar [src]="review.ownerImage" [alt]="review.ownerName"
+               onerror="this.src='assets/img/default-avatar.png'">
           <mat-card-title>{{ review.ownerName }}</mat-card-title>
           <mat-card-subtitle>{{ review.bikeModel }}</mat-card-subtitle>
+          <div class="review-date-badge">{{ review.date }}</div>
         </mat-card-header>
         <mat-card-content>
-          <p class="review-date">{{ review.date }}</p>
-          <p>"{{ review.comment }}"</p>
+          <p class="review-text">"{{ review.comment }}"</p>
         </mat-card-content>
-        <mat-card-actions class="review-rating">
+        <mat-card-actions class="review-footer">
           <div class="rating-stars">
-            <strong>{{ review.rating.toFixed(1) }}</strong>
-            <mat-icon *ngFor="let star of stars; let i = index">{{ getStarType(review.rating, i + 1) }}</mat-icon>
+            <strong>{{ review.rating | number:'1.1-1' }}</strong>
+            <div class="stars-icons">
+              <mat-icon *ngFor="let star of stars; let i = index">
+                {{ getStarType(review.rating, i + 1) }}
+              </mat-icon>
+            </div>
           </div>
         </mat-card-actions>
       </mat-card>
     </div>
+
     <div class="view-more-container" *ngIf="reviewsMade.length > 2">
-      <button mat-flat-button color="primary" (click)="openReviewsDialog()">{{ 'Profile.ViewMore' | translate }}</button>
+      <button mat-stroked-button color="primary" (click)="openReviewsDialog()">
+        {{ 'Profile.ViewMore' | translate }}
+      </button>
     </div>
   </div>
+
 </div>

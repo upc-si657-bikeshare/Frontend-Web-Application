@@ -13,6 +13,7 @@ import { CancelConfirmationDialogComponent } from '../../../shared/components/ca
 import { bookingService } from '../../../../api/bookingService';
 import { catalogService } from '../../../../api/catalogService';
 import { identityService } from '../../../../api/identityService';
+import { reviewService } from '../../../../api/reviewService';
 
 interface RenterStats {
   distanceTraveled: number;
@@ -29,6 +30,7 @@ interface UpcomingReservation {
   bikeImage: string;
   ownerName: string;
   totalPrice?: number;
+  status: string;
 }
 
 interface RentalHistory {
@@ -91,6 +93,7 @@ export class RenterHomePage implements OnInit {
 
     try {
       const allReservations: any[] = await bookingService.getReservations({ renterId: userId });
+
       const upcomingRaw = allReservations
         .filter(r => r.status === 'PENDING' || r.status === 'ACCEPTED')
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
@@ -98,12 +101,14 @@ export class RenterHomePage implements OnInit {
       const historyRaw = allReservations
         .filter(r => r.status === 'COMPLETED' || r.status === 'CANCELLED' || r.status === 'DECLINED')
         .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
+
       if (upcomingRaw.length > 0) {
         const nextRes = upcomingRaw[0];
         this.upcomingReservation = await this.enrichReservation(nextRes);
       } else {
         this.upcomingReservation = null;
       }
+
       this.recentRentals = await Promise.all(historyRaw.slice(0, 3).map(async (res) => {
         let bikeName = 'Bicicleta';
         try {
@@ -128,11 +133,22 @@ export class RenterHomePage implements OnInit {
         imageUrl: bike.imageUrl || 'assets/img/bike-placeholder.jpg'
       }));
 
+      let calculatedRating = 5.0;
+      try {
+        const myReviews: any[] = await reviewService.getReviews({ renterId: userId });
+        if (myReviews.length > 0) {
+          const sum = myReviews.reduce((acc, review) => acc + review.rating, 0);
+          calculatedRating = sum / myReviews.length;
+        }
+      } catch (e) {
+        console.warn('Error calculando rating', e);
+      }
+
       this.stats = {
-        distanceTraveled: historyRaw.length * 5,
+        distanceTraveled: historyRaw.filter(r => r.status === 'COMPLETED').length * 5,
         rentalsCount: historyRaw.filter(r => r.status === 'COMPLETED').length,
-        drivingTime: historyRaw.length * 45,
-        rating: 4.9
+        drivingTime: historyRaw.filter(r => r.status === 'COMPLETED').length * 45,
+        rating: calculatedRating
       };
 
     } catch (error) {
@@ -141,6 +157,7 @@ export class RenterHomePage implements OnInit {
       this.loading = false;
     }
   }
+
   private async enrichReservation(res: any): Promise<UpcomingReservation> {
     let bikeName = 'Cargando...';
     let bikeImage = '';
@@ -163,14 +180,21 @@ export class RenterHomePage implements OnInit {
       address: 'Ver ubicación en mapa',
       bikeImage: bikeImage,
       ownerName: ownerName,
-      totalPrice: res.totalPrice
+      totalPrice: res.totalPrice,
+      status: res.status
     };
   }
 
   viewDetails(reservation: UpcomingReservation): void {
-    this.dialog.open(ReservationDetailsDialogComponent, {
+    const dialogRef = this.dialog.open(ReservationDetailsDialogComponent, {
       width: '500px',
       data: reservation
+    });
+
+    dialogRef.afterClosed().subscribe(result => {
+      if (result === true) {
+        this.loadRealDashboardData();
+      }
     });
   }
 
@@ -181,7 +205,6 @@ export class RenterHomePage implements OnInit {
       if (confirmed) {
         try {
           await bookingService.updateStatus(reservation.id, 'CANCELLED');
-
           this.snackBar.open(this.translate.instant('Reservations.StatusCancelled'), 'OK', { duration: 3000 });
           this.loadRealDashboardData();
         } catch (error) {
@@ -191,6 +214,7 @@ export class RenterHomePage implements OnInit {
       }
     });
   }
+
   reserveBike(rec: Recommendation): void {
     const dialogData: ReservationDialogData = {
       bikeName: rec.bikeName,
