@@ -28,5 +28,9 @@ export const identityService = {
   changePassword: async (userId: number, data: any) => {
     const response = await api.put(`/api/auth/change-password/${userId}`, data);
     return response.data;
+  },
+  forceResetPassword: async (email: string, newPassword: string) => {
+    const response = await api.post('/api/auth/force-reset-password', { email, newPassword });
+    return response.data;
   }
 };

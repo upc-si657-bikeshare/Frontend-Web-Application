@@ -2,57 +2,55 @@ import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { HttpClient, HttpClientModule } from '@angular/common/http';
-import { TranslateModule, TranslateService } from '@ngx-translate/core';
+import { TranslateModule } from '@ngx-translate/core';
+import { identityService } from '../../../../api/identityService';
 
 @Component({
   selector: 'app-reset-password',
   standalone: true,
-  imports: [CommonModule, FormsModule, HttpClientModule, TranslateModule],
+  imports: [CommonModule, FormsModule, TranslateModule],
   templateUrl: './reset-password.page.html',
   styleUrls: ['./reset-password.page.css']
 })
 export class ResetPasswordPage implements OnInit {
   password = '';
   confirmPassword = '';
-  private userId: string | null = null;
-  private apiUrl = 'https://6824eacb0f0188d7e72b5f57.mockapi.io/api/v1/users2';
+  email: string | null = null;
 
   constructor(
     private route: ActivatedRoute,
-    private router: Router,
-    private http: HttpClient,
-    private translate: TranslateService
+    private router: Router
   ) {}
 
   ngOnInit() {
-    this.userId = this.route.snapshot.paramMap.get('id');
-    if (!this.userId) {
-      alert('ID de usuario no encontrado.');
-      this.router.navigate(['/login']);
-    }
+    this.route.queryParams.subscribe(params => {
+      this.email = params['email'];
+      if (!this.email) {
+        alert('No se especificó un correo.');
+        this.router.navigate(['/forgot-password']);
+      }
+    });
   }
 
-  onSubmit() {
+  async onSubmit() {
     if (!this.password || !this.confirmPassword) {
-      alert(this.translate.instant('ResetPassword.FieldsRequired'));
+      alert('Completa todos los campos');
       return;
     }
     if (this.password !== this.confirmPassword) {
-      alert(this.translate.instant('ResetPassword.PasswordsDoNotMatch'));
+      alert('Las contraseñas no coinciden');
       return;
     }
 
-    const updatedData = { password: this.password };
-    this.http.put(`${this.apiUrl}/${this.userId}`, updatedData).subscribe({
-      next: () => {
-        alert(this.translate.instant('ResetPassword.Success'));
-        this.router.navigate(['/login']);
-      },
-      error: (err) => {
-        console.error('Error updating password:', err);
-        alert(this.translate.instant('ResetPassword.Error'));
-      }
-    });
+    try {
+      await identityService.forceResetPassword(this.email!, this.password);
+
+      alert('¡Contraseña actualizada exitosamente!');
+      this.router.navigate(['/login']);
+
+    } catch (error) {
+      console.error('Error:', error);
+      alert('Error: El correo no existe o hubo un problema en el servidor.');
+    }
   }
 }
