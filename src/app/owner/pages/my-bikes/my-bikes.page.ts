@@ -55,6 +55,7 @@ export class MyBikesPage implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.map?.remove();
   }
+
   async loadOwnerBikes() {
     try {
       const data = await catalogService.getAllBikes({ ownerId: this.currentUserId });
@@ -109,6 +110,7 @@ export class MyBikesPage implements OnInit, OnDestroy {
     this.selectedBike = bike;
     this.isEditing = true;
   }
+
   async handleFormSubmit(formData: any) {
     try {
       if (this.selectedBike) {
@@ -145,6 +147,24 @@ export class MyBikesPage implements OnInit, OnDestroy {
     } catch (error) {
       console.error('Error guardando bicicleta:', error);
       alert('Hubo un error al guardar la bicicleta. Revisa la consola.');
+    }
+  }
+
+  async handleDeleteBike() {
+    if (!this.selectedBike) return;
+
+    if (confirm(`¿Estás seguro de que deseas eliminar la bicicleta "${this.selectedBike.model}"? Esta acción no se puede deshacer.`)) {
+      try {
+        await catalogService.deleteBike(this.selectedBike.id);
+        alert('Bicicleta eliminada correctamente');
+
+        this.isEditing = false;
+        this.selectedBike = null;
+        await this.loadOwnerBikes(); // Recargar lista
+      } catch (error) {
+        console.error('Error eliminando bicicleta:', error);
+        alert('No se pudo eliminar la bicicleta. Verifica que no tenga reservas activas.');
+      }
     }
   }
 

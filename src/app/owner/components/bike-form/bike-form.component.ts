@@ -30,6 +30,7 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
   @Input() bikeToEdit: Bike | null = null;
   @Output() formSubmitted = new EventEmitter<any>();
   @Output() formCancelled = new EventEmitter<void>();
+  @Output() deleteRequested = new EventEmitter<void>();
 
   @ViewChild('formMapContainer') private formMapContainer!: ElementRef;
   private map!: L.Map;
@@ -54,6 +55,7 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
       lng: [null, Validators.required]
     });
   }
+
   ngOnInit(): void {
     if (this.bikeToEdit) {
       this.bikeForm.patchValue({
@@ -115,6 +117,15 @@ export class BikeFormComponent implements OnInit, AfterViewInit, OnDestroy {
   onCancel(): void {
     this.formCancelled.emit();
   }
+
+  onDelete(): void {
+    this.deleteRequested.emit();
+  }
+
+  checkError(controlName: string, errorName: string): boolean {
+    return this.bikeForm.get(controlName)?.hasError(errorName) || false;
+  }
+
   get formattedLat(): string {
     const val = this.bikeForm.get('lat')?.value;
     return (val !== null && val !== undefined && !isNaN(val)) ? Number(val).toFixed(4) : 'N/A';
